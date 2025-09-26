@@ -8,8 +8,9 @@ return function(Rayfield, Window)
 
     local autoFarmEnabled = false
     local autoFarmConnection
+    local lastQuest -- keep track of quest for zone teleporting
 
-    -- Same quests table for level logic
+    -- Quests table for level logic
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -35,7 +36,7 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- Farming zones (based on quest level range)
+    -- Farming zones
     local farmZones = {
         {Min = 1, Max = 50, Position = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, Position = CFrame.new(607.02, 55.88, -345.22)},
@@ -52,7 +53,7 @@ return function(Rayfield, Window)
         end
     end
 
-    -- Helper functions
+    -- Helpers
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -80,10 +81,11 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
-        -- Teleport to correct farm zone ONCE when starting
+        -- Initial teleport
         local quest = GetCurrentQuest()
         if quest then
             TeleportToFarmZone(quest.MinLevel)
+            lastQuest = quest
         end
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
@@ -92,10 +94,16 @@ return function(Rayfield, Window)
             local quest = GetCurrentQuest()
             if not quest then return end
 
+            -- Check if quest changed (new level unlocked)
+            if not lastQuest or lastQuest.MinLevel ~= quest.MinLevel then
+                TeleportToFarmZone(quest.MinLevel)
+                lastQuest = quest
+            end
+
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
                 local enemyHRP = enemy.HumanoidRootPart
-                -- Teleport behind enemy and face it
+                -- Stay behind enemy and face it
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
 
