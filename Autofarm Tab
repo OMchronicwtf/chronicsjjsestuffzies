@@ -8,11 +8,10 @@ return function(Rayfield, Window)
     local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
     local autoFarmEnabled = false
-    local superKillEnabled = false
-    local specificQuestEnabled = false
     local autoFarmConnection
+    local superKillEnabled = false
 
-    -- Same quests table
+    -- Quests table
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -38,6 +37,15 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
+    -- Teleport zones
+    local areaTeleports = {
+        {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
+        {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
+        {Min = 200, Max = 500, CFrame = CFrame.new(526.34, 11.83, 778.68)},
+        {Min = 500, Max = 850, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
+    }
+
+    -- Helper: get current quest based on level
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -49,6 +57,7 @@ return function(Rayfield, Window)
         return selectedQuest
     end
 
+    -- Helper: find enemy for a quest
     local function GetEnemyForQuest(quest)
         if not quest then return nil end
         local targetLevel = quest.MinLevel
@@ -61,57 +70,47 @@ return function(Rayfield, Window)
         return nil
     end
 
+    -- Helper: teleport to zone for quest
     local function TeleportToZone(quest)
         if not quest then return end
         local lvl = quest.MinLevel
-        if lvl <= 50 then
-            hrp.CFrame = CFrame.new(-342.96, 11.42, -271.92)
-        elseif lvl <= 200 then
-            hrp.CFrame = CFrame.new(607.02, 55.88, -345.22)
-        elseif lvl <= 500 then
-            hrp.CFrame = CFrame.new(526.34, 11.83, 778.68)
-        else
-            hrp.CFrame = CFrame.new(1244.57, 53.17, -1478.92)
+        for _, zone in ipairs(areaTeleports) do
+            if lvl >= zone.Min and lvl <= zone.Max then
+                hrp.CFrame = zone.CFrame
+                break
+            end
         end
     end
 
-    local function StartQuest(quest)
-        if not quest then return end
-        QuestEvent:FireServer({Type = "RemoveQuest"})
-        QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-    end
-
-    local function AutoFarmLoop()
+    -- Start AutoFarm
+    local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
-            local quest
-            if specificQuestEnabled then
-                quest = GetCurrentQuest() -- could also allow custom selection here
-                StartQuest(quest)
-                TeleportToZone(quest)
-            else
-                quest = GetCurrentQuest()
-            end
-
+            local quest = GetCurrentQuest()
             if not quest then return end
+
+            -- Teleport to correct zone
+            TeleportToZone(quest)
+
             local enemy = GetEnemyForQuest(quest)
-            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
                 local enemyHRP = enemy.HumanoidRootPart
-                -- Teleport behind enemy & face it
-                local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
-                hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+                hrp.CFrame = CFrame.new(enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5), enemyHRP.Position)
+
+                -- Superkill
+                if superKillEnabled then
+                    enemy.Humanoid.Health = 0
+                end
 
                 -- Attack
                 M1Event:FireServer({type = "M1", InAir = false, UpTilt = false})
 
-                -- Superkill
-                if superKillEnabled and enemy:FindFirstChild("Humanoid") then
-                    enemy.Humanoid.Health = 0
-                end
+                -- Start the quest automatically
+                QuestEvent:FireServer({Type = "RepeatQuest", Quest = quest.QuestName})
             end
         end)
     end
@@ -124,31 +123,68 @@ return function(Rayfield, Window)
         end
     end
 
-    -- Toggles
+    -- ========== UI ==========
+
+    -- AutoFarm toggle
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
         Flag = "AutoFarmToggle",
         Callback = function(state)
-            if state then AutoFarmLoop() else StopAutoFarm() end
+            if state then
+                StartAutoFarm()
+            else
+                StopAutoFarm()
+            end
         end
     })
 
+    -- Superkill toggle
     AutoFarmTab:CreateToggle({
-        Name = "Enable SuperKill",
+        Name = "Superkill",
         CurrentValue = false,
-        Flag = "SuperKillToggle",
+        Flag = "SuperkillToggle",
         Callback = function(state)
             superKillEnabled = state
         end
     })
 
-    AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quest",
-        CurrentValue = false,
-        Flag = "SpecificQuestToggle",
-        Callback = function(state)
-            specificQuestEnabled = state
+    -- Dropdown: Farm Specific Quest
+    local specificQuestSelection = {}
+    local function RefreshQuestOptions()
+        local options = {}
+        for _, quest in ipairs(quests) do
+            table.insert(options, quest.DisplayName)
+        end
+        if #options > 0 then
+            specificQuestSelection = {options[1]}
+        end
+        return options
+    end
+
+    local dropdownOptions = RefreshQuestOptions()
+
+    AutoFarmTab:CreateDropdown({
+        Name = "Select Specific Quest",
+        Options = dropdownOptions,
+        CurrentOption = specificQuestSelection,
+        MultipleOptions = false,
+        Flag = "SpecificQuestDropdown",
+        Callback = function(options)
+            specificQuestSelection = options
+            local questName = specificQuestSelection[1]
+            local selectedQuest
+            for _, quest in ipairs(quests) do
+                if quest.DisplayName == questName then
+                    selectedQuest = quest
+                    break
+                end
+            end
+            if selectedQuest then
+                -- Teleport and start quest
+                TeleportToZone(selectedQuest)
+                QuestEvent:FireServer({Type = "RepeatQuest", Quest = selectedQuest.QuestName})
+            end
         end
     })
 end
