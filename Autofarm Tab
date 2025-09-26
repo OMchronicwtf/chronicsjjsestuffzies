@@ -5,6 +5,7 @@ return function(Rayfield, Window)
     local hrp = character:WaitForChild("HumanoidRootPart")
     local RunService = game:GetService("RunService")
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
+    local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
     local autoFarmEnabled = false
     local autoFarmConnection
@@ -93,6 +94,12 @@ return function(Rayfield, Window)
         end
     end
 
+    local function StartQuest(quest)
+        if not quest then return end
+        QuestEvent:FireServer({Type = "RemoveQuest"})
+        QuestEvent:FireServer({Type = "RepeatQuest", Quest = quest.QuestName})
+    end
+
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
@@ -108,10 +115,9 @@ return function(Rayfield, Window)
             end
 
             if quest then
+                TeleportToArea(quest.MinLevel)
                 if farmSpecificEnabled then
-                    TeleportToArea(quest.MinLevel)
-                else
-                    TeleportToArea(quest.MinLevel)
+                    StartQuest(quest) -- Start the specific quest automatically
                 end
             end
 
@@ -183,6 +189,10 @@ return function(Rayfield, Window)
             for _, quest in ipairs(quests) do
                 if quest.DisplayName == questName then
                     manualFarmQuest = quest
+                    if farmSpecificEnabled then
+                        StartQuest(manualFarmQuest) -- Automatically start when selected
+                        TeleportToArea(manualFarmQuest.MinLevel)
+                    end
                     break
                 end
             end
@@ -195,6 +205,10 @@ return function(Rayfield, Window)
         Flag = "FarmSpecificToggle",
         Callback = function(state)
             farmSpecificEnabled = state
+            if farmSpecificEnabled and manualFarmQuest then
+                StartQuest(manualFarmQuest) -- Start quest when enabling the toggle
+                TeleportToArea(manualFarmQuest.MinLevel)
+            end
         end
     })
 end
