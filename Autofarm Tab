@@ -8,9 +8,8 @@ return function(Rayfield, Window)
 
     local autoFarmEnabled = false
     local autoFarmConnection
-    local lastQuest -- keep track of quest for zone teleporting
+    local lastQuest
 
-    -- Quests table for level logic
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -36,12 +35,11 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- Farming zones
     local farmZones = {
         {Min = 1, Max = 50, Position = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, Position = CFrame.new(607.02, 55.88, -345.22)},
         {Min = 200, Max = 500, Position = CFrame.new(526.34, 11.83, 778.68)},
-        {Min = 500, Max = 850, Position = CFrame.new(1244.57, 53.17, -1478.92)},
+        {Min = 500, Max = math.huge, Position = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
     local function TeleportToFarmZone(level)
@@ -53,7 +51,6 @@ return function(Rayfield, Window)
         end
     end
 
-    -- Helpers
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -81,7 +78,6 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
-        -- Initial teleport
         local quest = GetCurrentQuest()
         if quest then
             TeleportToFarmZone(quest.MinLevel)
@@ -94,7 +90,6 @@ return function(Rayfield, Window)
             local quest = GetCurrentQuest()
             if not quest then return end
 
-            -- Check if quest changed (new level unlocked)
             if not lastQuest or lastQuest.MinLevel ~= quest.MinLevel then
                 TeleportToFarmZone(quest.MinLevel)
                 lastQuest = quest
@@ -103,7 +98,14 @@ return function(Rayfield, Window)
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
                 local enemyHRP = enemy.HumanoidRootPart
-                -- Stay behind enemy and face it
+                local humanoid = enemy:FindFirstChild("Humanoid")
+
+                -- ✅ Print enemy health
+                if humanoid then
+                    print(string.format("[AutoFarm] Targeting %s | Health: %.1f", enemy.Name, humanoid.Health))
+                end
+
+                -- Teleport behind enemy
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
 
@@ -125,7 +127,6 @@ return function(Rayfield, Window)
         end
     end
 
-    -- Toggle UI
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
