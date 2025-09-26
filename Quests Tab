@@ -46,31 +46,46 @@ return function(Rayfield, Window)
         Flag = "AutoQuestToggle",
         Callback = function(state)
             local RunService = game:GetService("RunService")
-            local function CheckAndStartQuest()
+
+            -- find highest quest for current level
+            local function GetBestQuest()
                 local level = player:WaitForChild("Data"):WaitForChild("Level").Value
-                local selectedQuest
+                local bestQuest
                 for _, quest in ipairs(quests) do
                     if level >= quest.MinLevel then
-                        selectedQuest = quest
+                        bestQuest = quest
                     end
                 end
-                return selectedQuest
+                return bestQuest
             end
 
-            if state == false and _G.autoQuestConnection then
+            -- detect current quest text from GUI
+            local function GetCurrentQuestName()
+                local missionFrame = player.PlayerGui.Quest:FindFirstChild("Mission")
+                if missionFrame and missionFrame.Visible then
+                    local textLabel = missionFrame:FindFirstChildOfClass("TextLabel")
+                    if textLabel then
+                        return textLabel.Text
+                    end
+                end
+                return nil
+            end
+
+            if not state and _G.autoQuestConnection then
                 _G.autoQuestConnection:Disconnect()
                 _G.autoQuestConnection = nil
                 Event:FireServer({Type = "RemoveQuest"})
             end
 
-            if state == true then
+            if state then
                 _G.autoQuestConnection = RunService.Heartbeat:Connect(function()
-                    local questGui = player:WaitForChild("PlayerGui"):WaitForChild("Quest"):WaitForChild("Mission")
-                    if not questGui.Visible then
-                        local questToStart = CheckAndStartQuest()
-                        if questToStart then
+                    local bestQuest = GetBestQuest()
+                    if bestQuest then
+                        local currentQuestName = GetCurrentQuestName()
+                        if currentQuestName ~= bestQuest.QuestName then
+                            -- switch to the new quest if different
                             Event:FireServer({Type = "RemoveQuest"})
-                            Event:FireServer({Quest = questToStart.QuestName, Type = "RepeatQuest"})
+                            Event:FireServer({Quest = bestQuest.QuestName, Type = "RepeatQuest"})
                         end
                     end
                 end)
