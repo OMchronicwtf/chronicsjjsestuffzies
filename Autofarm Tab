@@ -5,7 +5,9 @@ return function(Rayfield, Window)
     local hrp = character:WaitForChild("HumanoidRootPart")
     local RunService = game:GetService("RunService")
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
+    local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
+    -- State
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
@@ -13,9 +15,14 @@ return function(Rayfield, Window)
     local currentHealthConnection
     local manualFarmQuest = nil
 
-    -- ======================
-    -- Section: Quest Data
-    -- ======================
+    -- ===========================
+    -- Sections
+    -- ===========================
+    AutoFarmTab:CreateSection("General AutoFarm")
+    
+    -- ===========================
+    -- Quests Table
+    -- ===========================
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -41,9 +48,9 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- ======================
-    -- Section: Teleport Zones
-    -- ======================
+    -- ===========================
+    -- Teleport Zones
+    -- ===========================
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -51,9 +58,9 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- ======================
-    -- Helpers
-    -- ======================
+    -- ===========================
+    -- Helper Functions
+    -- ===========================
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -100,15 +107,16 @@ return function(Rayfield, Window)
     end
 
     local function StartQuest(quest)
-        local Event = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
-        if not Event then return end
-        Event:FireServer({Type = "RemoveQuest"})
-        Event:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+        if quest then
+            local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+            local currentTitle = questFrame.Frame.Title.Text
+            if currentTitle ~= quest.QuestName then
+                QuestEvent:FireServer({Type = "RemoveQuest"})
+                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+            end
+        end
     end
 
-    -- ======================
-    -- AutoFarm Logic
-    -- ======================
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
@@ -116,8 +124,6 @@ return function(Rayfield, Window)
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
-            local questGui = player:WaitForChild("PlayerGui"):WaitForChild("Quest"):WaitForChild("Mission")
-            local inQuest = questGui.Visible
             local quest
             if farmSpecificEnabled and manualFarmQuest then
                 quest = manualFarmQuest
@@ -125,22 +131,25 @@ return function(Rayfield, Window)
                 quest = GetCurrentQuest()
             end
 
-            if quest and not inQuest then
-                StartQuest(quest)
-            end
+            -- Start correct quest
+            StartQuest(quest)
 
+            -- Teleport to area
             if quest then
                 TeleportToArea(quest.MinLevel)
             end
 
+            -- Get target enemy
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
                 local enemyHRP = enemy.HumanoidRootPart
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
 
+                -- SuperKill if enabled
                 AttachSuperKill(enemy)
 
+                -- Attack
                 M1Event:FireServer({
                     type = "M1",
                     InAir = false,
@@ -162,11 +171,9 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ======================
-    -- UI
-    -- ======================
-    AutoFarmTab:CreateSection("AutoFarm Options")
-
+    -- ===========================
+    -- UI Elements
+    -- ===========================
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -190,7 +197,6 @@ return function(Rayfield, Window)
     })
 
     AutoFarmTab:CreateDivider()
-
     AutoFarmTab:CreateSection("Farm Specific Quest")
 
     local questOptions = {}
