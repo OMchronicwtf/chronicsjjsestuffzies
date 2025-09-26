@@ -1,0 +1,110 @@
+return function(Rayfield, Window)
+    local AutoFarmTab = Window:CreateTab("AutoFarm", 4483362458)
+    local player = game.Players.LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    local RunService = game:GetService("RunService")
+    local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
+
+    local autoFarmEnabled = false
+    local autoFarmConnection
+
+    -- Same quests table for level logic
+    local quests = {
+        {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
+        {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
+        {MinLevel = 20, QuestName = "Quest 2", DisplayName = "Level 20 → Quest 2"},
+        {MinLevel = 35, QuestName = "Quest 3", DisplayName = "Level 35 → Quest 3"},
+        {MinLevel = 50, QuestName = "Quest 4", DisplayName = "Level 50 → Quest 4"},
+        {MinLevel = 75, QuestName = "Quest 5", DisplayName = "Level 75 → Quest 5"},
+        {MinLevel = 100, QuestName = "Quest 6", DisplayName = "Level 100 → Quest 6"},
+        {MinLevel = 125, QuestName = "Quest 7", DisplayName = "Level 125 → Quest 7"},
+        {MinLevel = 150, QuestName = "Quest 8", DisplayName = "Level 150 → Quest 8"},
+        {MinLevel = 200, QuestName = "Quest 9", DisplayName = "Level 200 → Quest 9"},
+        {MinLevel = 250, QuestName = "Quest 10", DisplayName = "Level 250 → Quest 10"},
+        {MinLevel = 300, QuestName = "Quest 11", DisplayName = "Level 300 → Quest 11"},
+        {MinLevel = 350, QuestName = "Quest 12", DisplayName = "Level 350 → Quest 12"},
+        {MinLevel = 400, QuestName = "Quest 13", DisplayName = "Level 400 → Quest 13"},
+        {MinLevel = 450, QuestName = "Quest 14", DisplayName = "Level 450 → Quest 14"},
+        {MinLevel = 500, QuestName = "Quest 15", DisplayName = "Level 500 → Quest 15"},
+        {MinLevel = 550, QuestName = "Quest 16", DisplayName = "Level 550 → Quest 16"},
+        {MinLevel = 600, QuestName = "Quest 17", DisplayName = "Level 600 → Quest 17"},
+        {MinLevel = 650, QuestName = "Quest 18", DisplayName = "Level 650 → Quest 18"},
+        {MinLevel = 700, QuestName = "Quest 19", DisplayName = "Level 700 → Quest 19"},
+        {MinLevel = 750, QuestName = "Quest 20", DisplayName = "Level 750 → Quest 20"},
+        {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
+    }
+
+    -- Helper functions
+    local function GetCurrentQuest()
+        local level = player:WaitForChild("Data"):WaitForChild("Level").Value
+        local selectedQuest
+        for _, quest in ipairs(quests) do
+            if level >= quest.MinLevel then
+                selectedQuest = quest
+            end
+        end
+        return selectedQuest
+    end
+
+    local function GetEnemyForQuest(quest)
+        if not quest then return nil end
+        local targetLevel = quest.MinLevel
+        for _, mob in pairs(workspace.Mobs:GetChildren()) do
+            local levelNum = tonumber(mob.Name:match("Lv(%d+)"))
+            if levelNum == targetLevel and mob:FindFirstChild("HumanoidRootPart") then
+                return mob
+            end
+        end
+        return nil
+    end
+
+    local function StartAutoFarm()
+        if autoFarmConnection then return end
+        autoFarmEnabled = true
+
+        autoFarmConnection = RunService.Heartbeat:Connect(function()
+            if not autoFarmEnabled then return end
+
+            local quest = GetCurrentQuest()
+            if not quest then return end
+
+            local enemy = GetEnemyForQuest(quest)
+            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                local enemyHRP = enemy.HumanoidRootPart
+                -- Teleport behind enemy and face it
+                local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+
+                -- Attack
+                M1Event:FireServer({
+                    type = "M1",
+                    InAir = false,
+                    UpTilt = false
+                })
+            end
+        end)
+    end
+
+    local function StopAutoFarm()
+        autoFarmEnabled = false
+        if autoFarmConnection then
+            autoFarmConnection:Disconnect()
+            autoFarmConnection = nil
+        end
+    end
+
+    -- Toggle UI
+    AutoFarmTab:CreateToggle({
+        Name = "Enable AutoFarm",
+        CurrentValue = false,
+        Flag = "AutoFarmToggle",
+        Callback = function(state)
+            if state then
+                StartAutoFarm()
+            else
+                StopAutoFarm()
+            end
+        end
+    })
+end
