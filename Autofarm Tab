@@ -8,7 +8,10 @@ return function(Rayfield, Window)
 
     local autoFarmEnabled = false
     local autoFarmConnection
+    local superKillEnabled = false
+    local currentHealthConnection
     local lastQuest
+    local lastEnemy
 
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
@@ -74,6 +77,24 @@ return function(Rayfield, Window)
         return nil
     end
 
+    local function HookEnemyHealth(enemy)
+        if currentHealthConnection then
+            currentHealthConnection:Disconnect()
+            currentHealthConnection = nil
+        end
+        lastEnemy = enemy
+
+        local humanoid = enemy:FindFirstChild("Humanoid")
+        if humanoid then
+            currentHealthConnection = humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+                if superKillEnabled and humanoid.Health > 0 then
+                    print("[SuperKill] Nuking:", enemy.Name)
+                    humanoid.Health = 0
+                end
+            end)
+        end
+    end
+
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
@@ -97,10 +118,13 @@ return function(Rayfield, Window)
 
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                if enemy ~= lastEnemy then
+                    HookEnemyHealth(enemy)
+                end
+
                 local enemyHRP = enemy.HumanoidRootPart
                 local humanoid = enemy:FindFirstChild("Humanoid")
 
-                -- ✅ Print enemy health
                 if humanoid then
                     print(string.format("[AutoFarm] Targeting %s | Health: %.1f", enemy.Name, humanoid.Health))
                 end
@@ -125,8 +149,14 @@ return function(Rayfield, Window)
             autoFarmConnection:Disconnect()
             autoFarmConnection = nil
         end
+        if currentHealthConnection then
+            currentHealthConnection:Disconnect()
+            currentHealthConnection = nil
+        end
+        lastEnemy = nil
     end
 
+    -- AutoFarm toggle
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -137,6 +167,17 @@ return function(Rayfield, Window)
             else
                 StopAutoFarm()
             end
+        end
+    })
+
+    -- ✅ SuperKill toggle (underneath AutoFarm)
+    AutoFarmTab:CreateToggle({
+        Name = "Enable SuperKill",
+        CurrentValue = false,
+        Flag = "SuperKillToggle",
+        Callback = function(state)
+            superKillEnabled = state
+            print("[SuperKill]", state and "Enabled" or "Disabled")
         end
     })
 end
