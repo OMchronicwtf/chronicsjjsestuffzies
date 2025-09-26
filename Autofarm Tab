@@ -9,10 +9,11 @@ return function(Rayfield, Window)
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
+    local farmSpecificEnabled = false
     local currentHealthConnection
-    local manualFarmQuest = nil -- for farming specific quest mobs
+    local manualFarmQuest = nil
 
-    -- Same quests table for level logic
+    -- Quests list
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -38,7 +39,7 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- Area teleports for loading enemies
+    -- Teleport zones
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -46,7 +47,7 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- Helper functions
+    -- Helpers
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -96,16 +97,23 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
-        local quest = manualFarmQuest or GetCurrentQuest()
-        if quest then
-            TeleportToArea(quest.MinLevel)
-        end
-
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
-            local quest = manualFarmQuest or GetCurrentQuest()
-            if not quest then return end
+            local quest
+            if farmSpecificEnabled and manualFarmQuest then
+                quest = manualFarmQuest
+            else
+                quest = GetCurrentQuest()
+            end
+
+            if quest then
+                if farmSpecificEnabled then
+                    TeleportToArea(quest.MinLevel)
+                else
+                    TeleportToArea(quest.MinLevel)
+                end
+            end
 
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
@@ -136,7 +144,7 @@ return function(Rayfield, Window)
         end
     end
 
-    -- Toggle: AutoFarm
+    -- UI
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -150,7 +158,6 @@ return function(Rayfield, Window)
         end
     })
 
-    -- Toggle: SuperKill
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
         CurrentValue = false,
@@ -160,17 +167,15 @@ return function(Rayfield, Window)
         end
     })
 
-    -- Dropdown: Select Specific Quest to Farm
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
     end
-    local selectedFarmQuest = {questOptions[1]}
 
     AutoFarmTab:CreateDropdown({
-        Name = "Farm Specific Quest",
+        Name = "Choose Quest to Farm",
         Options = questOptions,
-        CurrentOption = selectedFarmQuest,
+        CurrentOption = {questOptions[1]},
         MultipleOptions = false,
         Flag = "FarmQuestDropdown",
         Callback = function(options)
@@ -184,11 +189,12 @@ return function(Rayfield, Window)
         end
     })
 
-    -- Button: Reset back to farming by level
-    AutoFarmTab:CreateButton({
-        Name = "Farm by Current Level",
-        Callback = function()
-            manualFarmQuest = nil
+    AutoFarmTab:CreateToggle({
+        Name = "Farm Specific Quest",
+        CurrentValue = false,
+        Flag = "FarmSpecificToggle",
+        Callback = function(state)
+            farmSpecificEnabled = state
         end
     })
 end
