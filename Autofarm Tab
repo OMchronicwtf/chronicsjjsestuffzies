@@ -35,6 +35,23 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
+    -- Farming zones (based on quest level range)
+    local farmZones = {
+        {Min = 1, Max = 50, Position = CFrame.new(-342.96, 11.42, -271.92)},
+        {Min = 75, Max = 200, Position = CFrame.new(607.02, 55.88, -345.22)},
+        {Min = 200, Max = 500, Position = CFrame.new(526.34, 11.83, 778.68)},
+        {Min = 500, Max = math.huge, Position = CFrame.new(1244.57, 53.17, -1478.92)},
+    }
+
+    local function TeleportToFarmZone(level)
+        for _, zone in ipairs(farmZones) do
+            if level >= zone.Min and level <= zone.Max then
+                hrp.CFrame = zone.Position
+                break
+            end
+        end
+    end
+
     -- Helper functions
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
@@ -62,6 +79,12 @@ return function(Rayfield, Window)
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
+
+        -- Teleport to correct farm zone ONCE when starting
+        local quest = GetCurrentQuest()
+        if quest then
+            TeleportToFarmZone(quest.MinLevel)
+        end
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
