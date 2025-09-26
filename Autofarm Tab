@@ -41,7 +41,7 @@ return function(Rayfield, Window)
         {Min = 1, Max = 50, Position = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, Position = CFrame.new(607.02, 55.88, -345.22)},
         {Min = 200, Max = 500, Position = CFrame.new(526.34, 11.83, 778.68)},
-        {Min = 500, Max = math.huge, Position = CFrame.new(1244.57, 53.17, -1478.92)},
+        {Min = 500, Max = 850, Position = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
     local function TeleportToFarmZone(level)
