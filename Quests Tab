@@ -2,7 +2,7 @@ return function(Rayfield, Window)
     -- Create Quests tab
     local Tab = Window:CreateTab("Quests", 4483362458)
 
-    -- Table of quests (editable!) with DisplayName for dropdown/notifications
+    -- Table of quests (editable!) with DisplayName for dropdown
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -37,6 +37,30 @@ return function(Rayfield, Window)
         Event:FireServer({Quest = selectedQuest.QuestName, Type = "RepeatQuest"})
     end
 
+    -- Helper to find best quest for level
+    local function GetBestQuest()
+        local level = player:WaitForChild("Data"):WaitForChild("Level").Value
+        local bestQuest
+        for _, quest in ipairs(quests) do
+            if level >= quest.MinLevel then
+                bestQuest = quest
+            end
+        end
+        return bestQuest
+    end
+
+    -- Helper to detect current active quest (from GUI)
+    local function GetCurrentQuestName()
+        local missionFrame = player.PlayerGui.Quest:FindFirstChild("Mission")
+        if missionFrame and missionFrame.Visible then
+            local textLabel = missionFrame:FindFirstChildOfClass("TextLabel")
+            if textLabel then
+                return textLabel.Text
+            end
+        end
+        return nil
+    end
+
     -- ===========================
     -- Toggle: Auto Quest
     -- ===========================
@@ -47,45 +71,31 @@ return function(Rayfield, Window)
         Callback = function(state)
             local RunService = game:GetService("RunService")
 
-            -- find highest quest for current level
-            local function GetBestQuest()
-                local level = player:WaitForChild("Data"):WaitForChild("Level").Value
-                local bestQuest
-                for _, quest in ipairs(quests) do
-                    if level >= quest.MinLevel then
-                        bestQuest = quest
-                    end
-                end
-                return bestQuest
-            end
-
-            -- detect current quest text from GUI
-            local function GetCurrentQuestName()
-                local missionFrame = player.PlayerGui.Quest:FindFirstChild("Mission")
-                if missionFrame and missionFrame.Visible then
-                    local textLabel = missionFrame:FindFirstChildOfClass("TextLabel")
-                    if textLabel then
-                        return textLabel.Text
-                    end
-                end
-                return nil
-            end
-
             if not state and _G.autoQuestConnection then
                 _G.autoQuestConnection:Disconnect()
                 _G.autoQuestConnection = nil
                 Event:FireServer({Type = "RemoveQuest"})
+                _G.lastQuest = nil
             end
 
             if state then
                 _G.autoQuestConnection = RunService.Heartbeat:Connect(function()
                     local bestQuest = GetBestQuest()
-                    if bestQuest then
-                        local currentQuestName = GetCurrentQuestName()
-                        if currentQuestName ~= bestQuest.QuestName then
-                            -- switch to the new quest if different
+                    if not bestQuest then return end
+
+                    local currentQuestName = GetCurrentQuestName()
+
+                    -- Only change quest if:
+                    -- 1. no quest active
+                    -- 2. or best quest is higher than last quest
+                    if (not currentQuestName) or (currentQuestName ~= bestQuest.QuestName) then
+                        if _G.lastQuest ~= bestQuest.QuestName then
                             Event:FireServer({Type = "RemoveQuest"})
-                            Event:FireServer({Quest = bestQuest.QuestName, Type = "RepeatQuest"})
+                            Event:FireServer({
+                                Quest = bestQuest.QuestName,
+                                Type = "RepeatQuest"
+                            })
+                            _G.lastQuest = bestQuest.QuestName
                         end
                     end
                 end)
@@ -99,13 +109,7 @@ return function(Rayfield, Window)
     Tab:CreateButton({
         Name = "Start Current Quest",
         Callback = function()
-            local level = player:WaitForChild("Data"):WaitForChild("Level").Value
-            local selectedQuest
-            for _, quest in ipairs(quests) do
-                if level >= quest.MinLevel then
-                    selectedQuest = quest
-                end
-            end
+            local selectedQuest = GetBestQuest()
             if selectedQuest then
                 StartQuest(selectedQuest)
             end
