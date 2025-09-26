@@ -10,9 +10,8 @@ return function(Rayfield, Window)
     local autoFarmConnection
     local superKillEnabled = false
     local currentHealthConnection
-    local lastQuest
-    local lastEnemy
 
+    -- Same quests table for level logic
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -38,22 +37,15 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    local farmZones = {
-        {Min = 1, Max = 50, Position = CFrame.new(-342.96, 11.42, -271.92)},
-        {Min = 75, Max = 200, Position = CFrame.new(607.02, 55.88, -345.22)},
-        {Min = 200, Max = 500, Position = CFrame.new(526.34, 11.83, 778.68)},
-        {Min = 500, Max = math.huge, Position = CFrame.new(1244.57, 53.17, -1478.92)},
+    -- Area teleports for loading enemies
+    local areaTeleports = {
+        {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
+        {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
+        {Min = 200, Max = 500, CFrame = CFrame.new(526.34, 11.83, 778.68)},
+        {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    local function TeleportToFarmZone(level)
-        for _, zone in ipairs(farmZones) do
-            if level >= zone.Min and level <= zone.Max then
-                hrp.CFrame = zone.Position
-                break
-            end
-        end
-    end
-
+    -- Helper functions
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -70,27 +62,31 @@ return function(Rayfield, Window)
         local targetLevel = quest.MinLevel
         for _, mob in pairs(workspace.Mobs:GetChildren()) do
             local levelNum = tonumber(mob.Name:match("Lv(%d+)"))
-            if levelNum == targetLevel and mob:FindFirstChild("HumanoidRootPart") then
+            if levelNum == targetLevel and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
                 return mob
             end
         end
         return nil
     end
 
-    local function HookEnemyHealth(enemy)
+    local function TeleportToArea(level)
+        for _, area in ipairs(areaTeleports) do
+            if level >= area.Min and level <= area.Max then
+                hrp.CFrame = area.CFrame
+                break
+            end
+        end
+    end
+
+    local function AttachSuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
         end
-        lastEnemy = enemy
-
-        local humanoid = enemy:FindFirstChild("Humanoid")
-        if humanoid then
-            currentHealthConnection = humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-                if superKillEnabled and humanoid.Health > 0 then
-                    print("[SuperKill] Nuking:", enemy.Name)
-                    humanoid.Health = 0
-                end
+        if enemy and enemy:FindFirstChild("Humanoid") and superKillEnabled then
+            local humanoid = enemy.Humanoid
+            currentHealthConnection = humanoid.HealthChanged:Connect(function()
+                humanoid.Health = 0
             end)
         end
     end
@@ -99,11 +95,9 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
-        local quest = GetCurrentQuest()
-        if quest then
-            TeleportToFarmZone(quest.MinLevel)
-            lastQuest = quest
-        end
+        -- Teleport to correct area before farming
+        local level = player:WaitForChild("Data"):WaitForChild("Level").Value
+        TeleportToArea(level)
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
@@ -111,27 +105,15 @@ return function(Rayfield, Window)
             local quest = GetCurrentQuest()
             if not quest then return end
 
-            if not lastQuest or lastQuest.MinLevel ~= quest.MinLevel then
-                TeleportToFarmZone(quest.MinLevel)
-                lastQuest = quest
-            end
-
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                if enemy ~= lastEnemy then
-                    HookEnemyHealth(enemy)
-                end
-
                 local enemyHRP = enemy.HumanoidRootPart
-                local humanoid = enemy:FindFirstChild("Humanoid")
-
-                if humanoid then
-                    print(string.format("[AutoFarm] Targeting %s | Health: %.1f", enemy.Name, humanoid.Health))
-                end
-
-                -- Teleport behind enemy
+                -- Teleport behind enemy and face it
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+
+                -- Attach SuperKill if enabled
+                AttachSuperKill(enemy)
 
                 -- Attack
                 M1Event:FireServer({
@@ -153,10 +135,9 @@ return function(Rayfield, Window)
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
         end
-        lastEnemy = nil
     end
 
-    -- AutoFarm toggle
+    -- Toggle: AutoFarm
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -170,14 +151,13 @@ return function(Rayfield, Window)
         end
     })
 
-    -- ✅ SuperKill toggle (underneath AutoFarm)
+    -- Toggle: SuperKill
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
         CurrentValue = false,
         Flag = "SuperKillToggle",
         Callback = function(state)
             superKillEnabled = state
-            print("[SuperKill]", state and "Enabled" or "Disabled")
         end
     })
 end
