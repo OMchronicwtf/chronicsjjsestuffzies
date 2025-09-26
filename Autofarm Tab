@@ -10,6 +10,7 @@ return function(Rayfield, Window)
     local autoFarmConnection
     local superKillEnabled = false
     local currentHealthConnection
+    local manualFarmQuest = nil -- for farming specific quest mobs
 
     -- Same quests table for level logic
     local quests = {
@@ -95,27 +96,25 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
 
-        -- Teleport to correct area before farming
-        local level = player:WaitForChild("Data"):WaitForChild("Level").Value
-        TeleportToArea(level)
+        local quest = manualFarmQuest or GetCurrentQuest()
+        if quest then
+            TeleportToArea(quest.MinLevel)
+        end
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
-            local quest = GetCurrentQuest()
+            local quest = manualFarmQuest or GetCurrentQuest()
             if not quest then return end
 
             local enemy = GetEnemyForQuest(quest)
             if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
                 local enemyHRP = enemy.HumanoidRootPart
-                -- Teleport behind enemy and face it
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
 
-                -- Attach SuperKill if enabled
                 AttachSuperKill(enemy)
 
-                -- Attack
                 M1Event:FireServer({
                     type = "M1",
                     InAir = false,
@@ -158,6 +157,38 @@ return function(Rayfield, Window)
         Flag = "SuperKillToggle",
         Callback = function(state)
             superKillEnabled = state
+        end
+    })
+
+    -- Dropdown: Select Specific Quest to Farm
+    local questOptions = {}
+    for _, quest in ipairs(quests) do
+        table.insert(questOptions, quest.DisplayName)
+    end
+    local selectedFarmQuest = {questOptions[1]}
+
+    AutoFarmTab:CreateDropdown({
+        Name = "Farm Specific Quest",
+        Options = questOptions,
+        CurrentOption = selectedFarmQuest,
+        MultipleOptions = false,
+        Flag = "FarmQuestDropdown",
+        Callback = function(options)
+            local questName = options[1]
+            for _, quest in ipairs(quests) do
+                if quest.DisplayName == questName then
+                    manualFarmQuest = quest
+                    break
+                end
+            end
+        end
+    })
+
+    -- Button: Reset back to farming by level
+    AutoFarmTab:CreateButton({
+        Name = "Farm by Current Level",
+        Callback = function()
+            manualFarmQuest = nil
         end
     })
 end
