@@ -18,7 +18,7 @@ return function(Rayfield, Window)
     local questCheckInterval = 1 -- Check quest status every 1 second
 
     -- ========================
-    -- Quests (unchanged)
+    -- Quests
     -- ========================
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
@@ -46,7 +46,7 @@ return function(Rayfield, Window)
     }
 
     -- ========================
-    -- Teleport Zones (unchanged)
+    -- Teleport Zones
     -- ========================
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
@@ -86,6 +86,22 @@ return function(Rayfield, Window)
             if level >= area.Min and level <= area.Max then
                 hrp.CFrame = area.CFrame
                 break
+            end
+        end
+    end
+
+    local function StartQuestIfNeeded(quest)
+        if not quest then return end
+        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+        local isInQuest = questFrame and questFrame.Visible
+        local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
+        local canRepeat = repeatFrame and repeatFrame.Visible
+        if not isInQuest or currentTitle ~= quest.DisplayName then
+            if canRepeat or not isInQuest then
+                QuestEvent:FireServer({Type = "RemoveQuest"})
+                task.wait(0.1)
+                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
             end
         end
     end
@@ -133,43 +149,25 @@ return function(Rayfield, Window)
                     local canRepeat = repeatFrame and repeatFrame.Visible
                     local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
 
-                    if farmSpecificEnabled then
+                    if farmSpecificEnabled and #selectedQuests > 0 then
                         if #selectedQuests > 1 then
                             if not isInQuest and canRepeat then
-                                -- Quest completed, switch to next
                                 currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
                                 quest = selectedQuests[currentQuestIndex]
-                                -- Start the new quest
                                 QuestEvent:FireServer({Type = "RemoveQuest"})
                                 task.wait(0.1)
                                 QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
                             elseif not isInQuest or currentTitle ~= quest.DisplayName then
-                                -- Start or switch to the current quest
                                 QuestEvent:FireServer({Type = "RemoveQuest"})
                                 task.wait(0.1)
                                 QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
                             end
                         else
-                            -- Single specific quest, repeat if needed
-                            if not isInQuest or currentTitle ~= quest.DisplayName then
-                                if canRepeat or not isInQuest then
-                                    QuestEvent:FireServer({Type = "RemoveQuest"})
-                                    task.wait(0.1)
-                                    QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                                end
-                            end
+                            StartQuestIfNeeded(quest)
                         end
                     else
-                        -- Normal auto farm, start if needed
-                        if not isInQuest or currentTitle ~= quest.DisplayName then
-                            if canRepeat or not isInQuest then
-                                QuestEvent:FireServer({Type = "RemoveQuest"})
-                                task.wait(0.1)
-                                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                            end
-                        end
+                        StartQuestIfNeeded(quest)
                     end
-
                     lastQuestCheckTime = currentTime
                 end
             end
@@ -179,9 +177,7 @@ return function(Rayfield, Window)
                 local enemyHRP = enemy.HumanoidRootPart
                 local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                 hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
-
                 AttachSuperKill(enemy)
-
                 M1Event:FireServer({
                     type = "M1",
                     InAir = false,
@@ -238,7 +234,7 @@ return function(Rayfield, Window)
     end
 
     AutoFarmTab:CreateDropdown({
-        Name = "Choose Quest to Farm",
+        Name = "Choose Quests to Farm",
         Options = questOptions,
         CurrentOption = {},
         MultipleOptions = true,
@@ -253,8 +249,8 @@ return function(Rayfield, Window)
                     end
                 end
             end
-            -- Sort selected quests by MinLevel descending to start with higher levels first
             table.sort(selectedQuests, function(a, b) return a.MinLevel > b.MinLevel end)
+            currentQuestIndex = 1
         end
     })
 
@@ -264,6 +260,9 @@ return function(Rayfield, Window)
         Flag = "FarmSpecificToggle",
         Callback = function(state)
             farmSpecificEnabled = state
+            if state and #selectedQuests > 0 then
+                currentQuestIndex = 1
+            end
         end
     })
 end
