@@ -1,0 +1,180 @@
+function(Rayfield, Window)
+    -- Create Quests tab in the Rayfield UI
+    local Tab = Window:CreateTab("Quests", 4483362458)
+
+    -- Table of quests with level requirements and display names
+    local quests = {
+        {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
+        {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
+        {MinLevel = 20, QuestName = "Quest 2", DisplayName = "Level 20 → Quest 2"},
+        {MinLevel = 35, QuestName = "Quest 3", DisplayName = "Level 35 → Quest 3"},
+        {MinLevel = 50, QuestName = "Quest 4", DisplayName = "Level 50 → Quest 4"},
+        {MinLevel = 75, QuestName = "Quest 5", DisplayName = "Level 75 → Quest 5"},
+        {MinLevel = 100, QuestName = "Quest 6", DisplayName = "Level 100 → Quest 6"},
+        {MinLevel = 125, QuestName = "Quest 7", DisplayName = "Level 125 → Quest 7"},
+        {MinLevel = 150, QuestName = "Quest 8", DisplayName = "Level 150 → Quest 8"},
+        {MinLevel = 200, QuestName = "Quest 9", DisplayName = "Level 200 → Quest 9"},
+        {MinLevel = 250, QuestName = "Quest 10", DisplayName = "Level 250 → Quest 10"},
+        {MinLevel = 300, QuestName = "Quest 11", DisplayName = "Level 300 → Quest 11"},
+        {MinLevel = 350, QuestName = "Quest 12", DisplayName = "Level 350 → Quest 12"},
+        {MinLevel = 400, QuestName = "Quest 13", DisplayName = "Level 400 → Quest 13"},
+        {MinLevel = 450, QuestName = "Quest 14", DisplayName = "Level 450 → Quest 14"},
+        {MinLevel = 500, QuestName = "Quest 15", DisplayName = "Level 500 → Quest 15"},
+        {MinLevel = 550, QuestName = "Quest 16", DisplayName = "Level 550 → Quest 16"},
+        {MinLevel = 600, QuestName = "Quest 17", DisplayName = "Level 600 → Quest 17"},
+        {MinLevel = 650, QuestName = "Quest 18", DisplayName = "Level 650 → Quest 18"},
+        {MinLevel = 700, QuestName = "Quest 19", DisplayName = "Level 700 → Quest 19"},
+        {MinLevel = 750, QuestName = "Quest 20", DisplayName = "Level 750 → Quest 20"},
+        {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
+    }
+
+    -- Game services
+    local player = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+    local Event = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
+    local autoQuestConnection -- Store connection locally to avoid global pollution
+
+    -- Helper function to start a quest
+    local function StartQuest(selectedQuest)
+        if selectedQuest then
+            -- Fire a single event to remove and start the quest
+            Event:FireServer({Type = "StartQuest", Quest = selectedQuest.QuestName})
+            Rayfield:Notify({
+                Title = "Quest Started",
+                Content = "Started quest: " .. selectedQuest.DisplayName,
+                Duration = 3
+            })
+        else
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "No eligible quest found for your level.",
+                Duration = 5
+            })
+        end
+    end
+
+    -- Helper function to find the highest eligible quest based on player level
+    local function GetEligibleQuest()
+        local levelData = player:FindFirstChild("Data") and player.Data:FindFirstChild("Level")
+        if not levelData then
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Player level data not found.",
+                Duration = 5
+            })
+            return nil
+        end
+        local level = levelData.Value
+        local selectedQuest = nil
+        -- Iterate in reverse to find the highest eligible quest first
+        for i = #quests, 1, -1 do
+            if level >= quests[i].MinLevel then
+                selectedQuest = quests[i]
+                break
+            end
+        end
+        return selectedQuest
+    end
+
+    -- ===========================
+    -- Toggle: Auto Quest
+    -- ===========================
+    Tab:CreateToggle({
+        Name = "Auto Quest",
+        CurrentValue = false,
+        Flag = "AutoQuestToggle",
+        Callback = function(state)
+            if state == false and autoQuestConnection then
+                autoQuestConnection:Disconnect()
+                autoQuestConnection = nil
+                Event:FireServer({Type = "RemoveQuest"})
+                Rayfield:Notify({
+                    Title = "Auto Quest",
+                    Content = "Auto Quest disabled.",
+                    Duration = 3
+                })
+            end
+
+            if state == true then
+                autoQuestConnection = RunService.Heartbeat:Connect(function()
+                    local questGui = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+                    if not questGui then
+                        Rayfield:Notify({
+                            Title = "Error",
+                            Content = "Quest GUI not found.",
+                            Duration = 5
+                        })
+                        return
+                    end
+                    if not questGui.Visible then
+                        local questToStart = GetEligibleQuest()
+                        StartQuest(questToStart)
+                    end
+                end)
+                Rayfield:Notify({
+                    Title = "Auto Quest",
+                    Content = "Auto Quest enabled.",
+                    Duration = 3
+                })
+            end
+        end
+    })
+
+    -- ===========================
+    -- Button: Start based on current level
+    -- ===========================
+    Tab:CreateButton({
+        Name = "Start Current Quest",
+        Callback = function()
+            local questToStart = GetEligibleQuest()
+            StartQuest(questToStart)
+        end
+    })
+
+    -- ===========================
+    -- Dropdown & manual start
+    -- ===========================
+    local selectedQuestManual = {}
+    local function RefreshDropdownOptions()
+        local questOptions = {}
+        local levelData = player:FindFirstChild("Data") and player.Data:FindFirstChild("Level")
+        local level = levelData and levelData.Value or 0
+        local defaultQuest = quests[1].DisplayName -- Fallback to first quest
+        for _, quest in ipairs(quests) do
+            table.insert(questOptions, quest.DisplayName)
+            if level >= quest.MinLevel and not selectedQuestManual[1] then
+                defaultQuest = quest.DisplayName
+            end
+        end
+        selectedQuestManual = {defaultQuest}
+        return questOptions
+    end
+
+    local dropdownOptions = RefreshDropdownOptions()
+
+    Tab:CreateDropdown({
+        Name = "Select Quest",
+        Options = dropdownOptions,
+        CurrentOption = selectedQuestManual,
+        MultipleOptions = false,
+        Flag = "ManualQuestDropdown",
+        Callback = function(options)
+            selectedQuestManual = options
+        end
+    })
+
+    Tab:CreateButton({
+        Name = "Start Selected Quest",
+        Callback = function()
+            local questName = selectedQuestManual[1]
+            local questToStart
+            for _, quest in ipairs(quests) do
+                if quest.DisplayName == questName then
+                    questToStart = quest
+                    break
+                end
+            end
+            StartQuest(questToStart)
+        end
+    })
+end
