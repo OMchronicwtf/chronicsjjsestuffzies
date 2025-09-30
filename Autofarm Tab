@@ -22,6 +22,7 @@ return function(Rayfield, Window)
     local selectedQuests = {}
     local currentQuestIndex = 1
     local questStartDelay = 0.5
+    local autoUpdateStatus = false
 
     -- Quest data
     local quests = {
@@ -56,6 +57,17 @@ return function(Rayfield, Window)
         {Min = 200, Max = 500, CFrame = CFrame.new(526.34, 11.83, 778.68)},
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
+
+    -- Player info and stats UI
+    local InfoParagraph = AutoFarmTab:CreateParagraph({
+        Title = "Player Info",
+        Content = "Toggle 'Auto Update Status' to view info"
+    })
+
+    local StatsParagraph = AutoFarmTab:CreateParagraph({
+        Title = "Player Stats",
+        Content = "Toggle 'Auto Update Status' to view stats"
+    })
 
     -- Helper functions
     local function GetLevelBasedQuest()
@@ -128,6 +140,80 @@ return function(Rayfield, Window)
         end
     end
 
+    local function UpdatePlayerInfo()
+        -- Player Info
+        local areaHandler = player.PlayerGui:FindFirstChild("Area") and player.PlayerGui.Area:FindFirstChild("Handler")
+        local currentArea = areaHandler and areaHandler:FindFirstChild("Value") and areaHandler.Value.Value or "Unknown"
+
+        local dialogueGui = player.PlayerGui:FindFirstChild("Dialogue")
+        local inDialogue = dialogueGui and dialogueGui.Enabled and "Yes" or "No"
+
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+        local questStatus = questFrame and questFrame.Visible and "In Quest" or "Not in Quest"
+        local currentQuestTitle = questFrame and questFrame.Visible and questFrame.Frame.Title.Text or "None"
+
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+        local repeatStatus = repeatFrame and repeatFrame.Visible and "Can Repeat" or "Cannot Repeat"
+
+        local mobileGui = player.PlayerGui:FindFirstChild("Mobile")
+        local platform = mobileGui and mobileGui.Enabled and "Mobile" or "PC"
+
+        local bossNameValue = player.PlayerGui:FindFirstChild("BossName")
+        local lastBoss = bossNameValue and bossNameValue.Value or "None"
+
+        local infoStats = {
+            {Name = "Platform", Value = platform},
+            {Name = "Current Area", Value = currentArea},
+            {Name = "In Dialogue", Value = inDialogue},
+            {Name = "Quest Status", Value = questStatus},
+            {Name = "Current Quest", Value = currentQuestTitle},
+            {Name = "Repeat Quest", Value = repeatStatus},
+            {Name = "Last Boss Attacked", Value = lastBoss}
+        }
+
+        local infoText = ""
+        for _, stat in ipairs(infoStats) do
+            infoText = infoText .. stat.Name .. ": " .. stat.Value .. "\n"
+        end
+
+        InfoParagraph:Set({
+            Title = "Player Info",
+            Content = infoText
+        })
+
+        -- Player Stats
+        local dataFolder = player:FindFirstChild("Data")
+        local statValues = {
+            {Name = "Level", Value = dataFolder and dataFolder:FindFirstChild("Level") and dataFolder.Level.Value or "N/A"},
+            {Name = "Cash", Value = dataFolder and dataFolder:FindFirstChild("Cash") and dataFolder.Cash.Value or "N/A"},
+            {Name = "Gems", Value = dataFolder and dataFolder:FindFirstChild("Gems") and dataFolder.Gems.Value or "N/A"},
+            {Name = "Stamina", Value = dataFolder and dataFolder:FindFirstChild("Stamina") and dataFolder.Stamina.Value or "N/A"},
+            {Name = "Max Stamina", Value = dataFolder and dataFolder:FindFirstChild("MaxStamina") and dataFolder.MaxStamina.Value or "N/A"},
+            {Name = "Respect", Value = dataFolder and dataFolder:FindFirstChild("Respect") and dataFolder.Respect.Value or "N/A"},
+            {Name = "Stat Points", Value = dataFolder and dataFolder:FindFirstChild("Points") and dataFolder.Points.Value or "N/A"}
+        }
+
+        local statsText = ""
+        for _, stat in ipairs(statValues) do
+            statsText = statsText .. stat.Name .. ": " .. stat.Value .. "\n"
+        end
+
+        StatsParagraph:Set({
+            Title = "Player Stats",
+            Content = statsText
+        })
+    end
+
+    -- Auto-update status loop
+    task.spawn(function()
+        while true do
+            if autoUpdateStatus then
+                UpdatePlayerInfo()
+            end
+            task.wait(1)
+        end
+    end)
+
     -- Auto-farm logic
     local function StartAutoFarm()
         if autoFarmConnection then return end
@@ -196,8 +282,6 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateDivider()
-
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
         CurrentValue = false,
@@ -242,6 +326,19 @@ return function(Rayfield, Window)
             farmSpecificQuests = state
             if state and #selectedQuests > 0 then
                 currentQuestIndex = 1
+            end
+        end
+    })
+
+    AutoFarmTab:CreateSection("Player Status")
+    AutoFarmTab:CreateToggle({
+        Name = "Auto Update Status",
+        CurrentValue = false,
+        Flag = "AutoUpdateStatus",
+        Callback = function(state)
+            autoUpdateStatus = state
+            if state then
+                UpdatePlayerInfo()
             end
         end
     })
