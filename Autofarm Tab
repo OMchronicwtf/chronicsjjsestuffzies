@@ -19,11 +19,7 @@ return function(Rayfield, Window)
     local currentHealthConnection
     local selectedQuests = {}
     local currentQuestIndex = 1
-    local lastQuestCheckTime = 0
-    local questCheckInterval = 2 -- Increased to 2 seconds for less frequent checks
-    local questStartCooldown = 0
     local questStartDelay = 0.5
-    local questUpdateBuffer = 5 -- Increased to 5 seconds for UI update buffer
 
     -- ========================
     -- Quests
@@ -108,9 +104,6 @@ return function(Rayfield, Window)
 
     local function StartQuestIfNeeded(quest)
         if not quest then return end
-        local currentTime = tick()
-        if currentTime <= questStartCooldown then return end
-
         local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
         local isInQuest = questFrame and questFrame.Visible
@@ -122,7 +115,6 @@ return function(Rayfield, Window)
                 QuestEvent:FireServer({Type = "RemoveQuest"})
                 task.wait(questStartDelay)
                 QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                questStartCooldown = tick() + questUpdateBuffer
             end
         end
     end
@@ -147,8 +139,6 @@ return function(Rayfield, Window)
         if autoFarmConnection then return end
         autoFarmEnabled = true
         currentQuestIndex = 1
-        lastQuestCheckTime = 0
-        questStartCooldown = 0
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
@@ -163,19 +153,11 @@ return function(Rayfield, Window)
             if quest then
                 TeleportToArea(quest.MinLevel)
 
-                local currentTime = tick()
-                if currentTime - lastQuestCheckTime >= questCheckInterval then
-                    if farmSpecificEnabled and #selectedQuests > 0 then
-                        if #selectedQuests > 1 and IsQuestComplete() and currentTime > questStartCooldown then
-                            currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
-                            quest = selectedQuests[currentQuestIndex]
-                        end
-                        StartQuestIfNeeded(quest)
-                    else
-                        StartQuestIfNeeded(quest)
-                    end
-                    lastQuestCheckTime = currentTime
+                if farmSpecificEnabled and #selectedQuests > 1 and IsQuestComplete() then
+                    currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
+                    quest = selectedQuests[currentQuestIndex]
                 end
+                StartQuestIfNeeded(quest)
             end
 
             local enemy = GetEnemyForQuest(quest)
