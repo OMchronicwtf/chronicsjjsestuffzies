@@ -1,0 +1,293 @@
+return function(Rayfield, Window)
+    local AutoFarmTab = Window:CreateTab("AutoFarm", 4483362458)
+    local player = game.Players.LocalPlayer
+    local RunService = game:GetService("RunService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local TweenService = game:GetService("TweenService")
+    local PathfindingService = game:GetService("PathfindingService")
+    local M1Event = ReplicatedStorage.Resource.Remotes.M1
+    local QuestEvent = ReplicatedStorage.Resource.Remotes.Bindable.Compliments
+
+    local autoFarmEnabled = false
+    local autoFarmConnection
+    local superKillEnabled = false
+    local farmSpecificEnabled = false
+    local currentHealthConnections = {}  -- Table to store multiple connections
+    local manualFarmQuest = nil
+    local attackDelay = 0.1  -- Configurable delay between attacks
+    local teleportTweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Linear)  -- Smooth teleport
+
+    -- Update character and HRP on spawn/respawn
+    local function UpdateCharacter()
+        local character = player.Character or player.CharacterAdded:Wait()
+        local hrp = character:WaitForChild("HumanoidRootPart")
+        return character, hrp
+    end
+    local character, hrp = UpdateCharacter()
+    player.CharacterAdded:Connect(function(newChar)
+        character = newChar
+        hrp = newChar:WaitForChild("HumanoidRootPart")
+    end)
+
+    -- ========================
+    -- Quests
+    -- ========================
+    local quests = {
+        {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
+        {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
+        {MinLevel = 20, QuestName = "Quest 2", DisplayName = "Level 20 → Quest 2"},
+        {MinLevel = 35, QuestName = "Quest 3", DisplayName = "Level 35 → Quest 3"},
+        {MinLevel = 50, QuestName = "Quest 4", DisplayName = "Level 50 → Quest 4"},
+        {MinLevel = 75, QuestName = "Quest 5", DisplayName = "Level 75 → Quest 5"},
+        {MinLevel = 100, QuestName = "Quest 6", DisplayName = "Level 100 → Quest 6"},
+        {MinLevel = 125, QuestName = "Quest 7", DisplayName = "Level 125 → Quest 7"},
+        {MinLevel = 150, QuestName = "Quest 8", DisplayName = "Level 150 → Quest 8"},
+        {MinLevel = 200, QuestName = "Quest 9", DisplayName = "Level 200 → Quest 9"},
+        {MinLevel = 250, QuestName = "Quest 10", DisplayName = "Level 250 → Quest 10"},
+        {MinLevel = 300, QuestName = "Quest 11", DisplayName = "Level 300 → Quest 11"},
+        {MinLevel = 350, QuestName = "Quest 12", DisplayName = "Level 350 → Quest 12"},
+        {MinLevel = 400, QuestName = "Quest 13", DisplayName = "Level 400 → Quest 13"},
+        {MinLevel = 450, QuestName = "Quest 14", DisplayName = "Level 450 → Quest 14"},
+        {MinLevel = 500, QuestName = "Quest 15", DisplayName = "Level 500 → Quest 15"},
+        {MinLevel = 550, QuestName = "Quest 16", DisplayName = "Level 550 → Quest 16"},
+        {MinLevel = 600, QuestName = "Quest 17", DisplayName = "Level 600 → Quest 17"},
+        {MinLevel = 650, QuestName = "Quest 18", DisplayName = "Level 650 → Quest 18"},
+        {MinLevel = 700, QuestName = "Quest 19", DisplayName = "Level 700 → Quest 19"},
+        {MinLevel = 750, QuestName = "Quest 20", DisplayName = "Level 750 → Quest 20"},
+        {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
+    }
+
+    -- ========================
+    -- Teleport Zones
+    -- ========================
+    local areaTeleports = {
+        {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
+        {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
+        {Min = 200, Max = 500, CFrame = CFrame.new(526.34, 11.83, 778.68)},
+        {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
+    }
+
+    -- ========================
+    -- Helpers
+    -- ========================
+    local function GetCurrentLevel()
+        return player:WaitForChild("Data"):WaitForChild("Level").Value
+    end
+
+    local function GetCurrentQuest()
+        local level = GetCurrentLevel()
+        local selectedQuest
+        for _, quest in ipairs(quests) do
+            if level >= quest.MinLevel then
+                selectedQuest = quest
+            else
+                break  -- Stop at the first quest that's too high
+            end
+        end
+        return selectedQuest
+    end
+
+    local function GetEnemiesForQuest(quest)
+        if not quest then return {} end
+        local targetLevel = quest.MinLevel
+        local enemies = {}
+        for _, mob in pairs(workspace.Mobs:GetChildren()) do
+            local levelNum = tonumber(mob.Name:match("Lv(%d+)"))
+            if levelNum == targetLevel and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") and mob.Humanoid.Health > 0 then
+                table.insert(enemies, mob)
+            end
+        end
+        return enemies
+    end
+
+    local function GetClosestEnemy(enemies)
+        local closest, minDist = nil, math.huge
+        for _, enemy in ipairs(enemies) do
+            local dist = (hrp.Position - enemy.HumanoidRootPart.Position).Magnitude
+            if dist < minDist then
+                closest = enemy
+                minDist = dist
+            end
+        end
+        return closest
+    end
+
+    local function TweenTeleport(targetCFrame)
+        local tween = TweenService:Create(hrp, teleportTweenInfo, {CFrame = targetCFrame})
+        tween:Play()
+        tween.Completed:Wait()
+    end
+
+    local function StartQuestIfNeeded(quest)
+        if not quest then return end
+        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+        local currentTitle = questFrame.Frame.Title.Text
+        if currentTitle ~= quest.DisplayName and GetCurrentLevel() >= quest.MinLevel then
+            QuestEvent:FireServer({Type = "RemoveQuest"})
+            task.wait(0.5)  -- Small delay to ensure removal
+            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+        end
+    end
+
+    local function AttachSuperKill(enemy)
+        if enemy and enemy:FindFirstChild("Humanoid") and superKillEnabled then
+            local humanoid = enemy.Humanoid
+            if not currentHealthConnections[enemy] then
+                currentHealthConnections[enemy] = humanoid.HealthChanged:Connect(function(health)
+                    if health > 0 then
+                        humanoid.Health = 0
+                    end
+                end)
+            end
+        end
+    end
+
+    local function CleanupHealthConnections()
+        for enemy, conn in pairs(currentHealthConnections) do
+            if conn then
+                conn:Disconnect()
+            end
+        end
+        currentHealthConnections = {}
+    end
+
+    -- ========================
+    -- Core AutoFarm Logic
+    -- ========================
+    local function StartAutoFarm()
+        if autoFarmConnection then return end
+        autoFarmEnabled = true
+
+        autoFarmConnection = RunService.Heartbeat:Connect(function()
+            if not autoFarmEnabled then return end
+
+            local quest
+            if farmSpecificEnabled and manualFarmQuest then
+                quest = manualFarmQuest
+            else
+                quest = GetCurrentQuest()
+            end
+
+            if quest then
+                -- Teleport to area only if not already there (reduce unnecessary teleports)
+                local level = GetCurrentLevel()
+                for _, area in ipairs(areaTeleports) do
+                    if level >= area.Min and level <= area.Max then
+                        local distToArea = (hrp.Position - area.CFrame.Position).Magnitude
+                        if distToArea > 50 then  -- Arbitrary threshold to avoid constant teleporting
+                            TweenTeleport(area.CFrame)
+                        end
+                        break
+                    end
+                end
+                StartQuestIfNeeded(quest)
+            end
+
+            local enemies = GetEnemiesForQuest(quest)
+            if #enemies > 0 then
+                local enemy = GetClosestEnemy(enemies)
+                if enemy then
+                    local enemyHRP = enemy.HumanoidRootPart
+                    local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                    TweenTeleport(CFrame.new(behindPos, enemyHRP.Position))
+
+                    AttachSuperKill(enemy)
+
+                    M1Event:FireServer({
+                        type = "M1",
+                        InAir = false,
+                        UpTilt = false
+                    })
+                    task.wait(attackDelay)  -- Delay to prevent spamming
+                end
+            else
+                -- Optional: Small random movement to avoid AFK detection
+                hrp.Velocity = Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
+            end
+        end)
+    end
+
+    local function StopAutoFarm()
+        autoFarmEnabled = false
+        if autoFarmConnection then
+            autoFarmConnection:Disconnect()
+            autoFarmConnection = nil
+        end
+        CleanupHealthConnections()
+    end
+
+    -- ========================
+    -- UI Sections
+    -- ========================
+    AutoFarmTab:CreateSection("Main AutoFarm")
+    AutoFarmTab:CreateToggle({
+        Name = "Enable AutoFarm",
+        CurrentValue = false,
+        Flag = "AutoFarmToggle",
+        Callback = function(state)
+            if state then
+                StartAutoFarm()
+            else
+                StopAutoFarm()
+            end
+        end
+    })
+
+    AutoFarmTab:CreateSlider({
+        Name = "Attack Delay (seconds)",
+        Range = {0.05, 1},
+        Increment = 0.05,
+        Suffix = "s",
+        CurrentValue = 0.1,
+        Flag = "AttackDelaySlider",
+        Callback = function(value)
+            attackDelay = value
+        end
+    })
+
+    AutoFarmTab:CreateDivider()
+
+    AutoFarmTab:CreateToggle({
+        Name = "Enable SuperKill",
+        CurrentValue = false,
+        Flag = "SuperKillToggle",
+        Callback = function(state)
+            superKillEnabled = state
+            if not state then
+                CleanupHealthConnections()
+            end
+        end
+    })
+
+    AutoFarmTab:CreateSection("Farm Specific Quest")
+    local questOptions = {}
+    for _, quest in ipairs(quests) do
+        table.insert(questOptions, quest.DisplayName)
+    end
+
+    AutoFarmTab:CreateDropdown({
+        Name = "Choose Quest to Farm",
+        Options = questOptions,
+        CurrentOption = {questOptions[1]},
+        MultipleOptions = false,
+        Flag = "FarmQuestDropdown",
+        Callback = function(options)
+            local questName = options[1]
+            for _, quest in ipairs(quests) do
+                if quest.DisplayName == questName then
+                    manualFarmQuest = quest
+                    break
+                end
+            end
+        end
+    })
+
+    AutoFarmTab:CreateToggle({
+        Name = "Farm Specific Quest",
+        CurrentValue = false,
+        Flag = "FarmSpecificToggle",
+        Callback = function(state)
+            farmSpecificEnabled = state
+        end
+    })
+end
