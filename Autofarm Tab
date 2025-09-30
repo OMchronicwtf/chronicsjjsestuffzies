@@ -7,6 +7,11 @@ return function(Rayfield, Window)
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
     local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
+    player.CharacterAdded:Connect(function(newChar)
+        character = newChar
+        hrp = newChar:WaitForChild("HumanoidRootPart")
+    end)
+
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
@@ -15,10 +20,10 @@ return function(Rayfield, Window)
     local selectedQuests = {}
     local currentQuestIndex = 1
     local lastQuestCheckTime = 0
-    local questCheckInterval = 1 -- Check quest status every 1 second
-    local questStartCooldown = 0 -- Cooldown to prevent immediate re-checks after starting a quest
-    local questStartDelay = 0.5 -- Delay after removing quest before starting new one
-    local questUpdateBuffer = 3 -- Buffer time in seconds for UI to update after starting quest
+    local questCheckInterval = 2 -- Increased to 2 seconds for less frequent checks
+    local questStartCooldown = 0
+    local questStartDelay = 0.5
+    local questUpdateBuffer = 5 -- Increased to 5 seconds for UI update buffer
 
     -- ========================
     -- Quests
@@ -93,16 +98,26 @@ return function(Rayfield, Window)
         end
     end
 
+    local function IsQuestComplete()
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+        local isInQuest = questFrame and questFrame.Visible
+        local canRepeat = repeatFrame and repeatFrame.Visible
+        return not isInQuest and canRepeat
+    end
+
     local function StartQuestIfNeeded(quest)
         if not quest then return end
         local currentTime = tick()
-        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+        if currentTime <= questStartCooldown then return end
+
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
         local isInQuest = questFrame and questFrame.Visible
         local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
         local canRepeat = repeatFrame and repeatFrame.Visible
 
-        if (not isInQuest or currentTitle ~= quest.DisplayName) and currentTime > questStartCooldown then
+        if not isInQuest or currentTitle ~= quest.DisplayName then
             if canRepeat or not isInQuest then
                 QuestEvent:FireServer({Type = "RemoveQuest"})
                 task.wait(questStartDelay)
@@ -147,38 +162,16 @@ return function(Rayfield, Window)
 
             if quest then
                 TeleportToArea(quest.MinLevel)
-                
+
                 local currentTime = tick()
                 if currentTime - lastQuestCheckTime >= questCheckInterval then
-                    local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
-                    local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-                    local isInQuest = questFrame.Visible
-                    local canRepeat = repeatFrame and repeatFrame.Visible
-                    local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
-
                     if farmSpecificEnabled and #selectedQuests > 0 then
-                        if #selectedQuests > 1 then
-                            if not isInQuest and canRepeat and currentTime > questStartCooldown then
-                                -- Quest completed, switch to next
-                                currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
-                                quest = selectedQuests[currentQuestIndex]
-                                QuestEvent:FireServer({Type = "RemoveQuest"})
-                                task.wait(questStartDelay)
-                                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                                questStartCooldown = tick() + questUpdateBuffer
-                            elseif (not isInQuest or currentTitle ~= quest.DisplayName) and currentTime > questStartCooldown then
-                                -- Start or switch to the current quest if needed
-                                QuestEvent:FireServer({Type = "RemoveQuest"})
-                                task.wait(questStartDelay)
-                                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                                questStartCooldown = tick() + questUpdateBuffer
-                            end
-                        else
-                            -- Single specific quest
-                            StartQuestIfNeeded(quest)
+                        if #selectedQuests > 1 and IsQuestComplete() and currentTime > questStartCooldown then
+                            currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
+                            quest = selectedQuests[currentQuestIndex]
                         end
+                        StartQuestIfNeeded(quest)
                     else
-                        -- Normal auto farm
                         StartQuestIfNeeded(quest)
                     end
                     lastQuestCheckTime = currentTime
