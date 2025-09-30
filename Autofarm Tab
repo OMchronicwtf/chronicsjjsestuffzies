@@ -16,8 +16,6 @@ return function(Rayfield, Window)
     local currentQuestIndex = 1 -- Tracks current quest in the list
     local lastQuestCheckTime = 0
     local questCheckInterval = 1 -- Check quest status every 1 second
-    local lastEnemyCheckTime = 0
-    local enemyCheckTimeout = 5 -- Switch quest if no enemy found for 5 seconds
 
     -- ========================
     -- Quests
@@ -96,32 +94,32 @@ return function(Rayfield, Window)
         if not quest then return end
 
         local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
-        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-        
-        -- Check if player is in a quest
         local isInQuest = questFrame and questFrame.Visible
         local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
         local canRepeat = repeatFrame and repeatFrame.Visible or false
 
         -- Debug: Log quest status
         print("Quest Status: isInQuest=", isInQuest, "currentTitle=", currentTitle, "canRepeat=", canRepeat, "targetQuest=", quest.DisplayName, "currentQuestIndex=", currentQuestIndex)
 
-        -- Only start a new quest if not in the correct quest
+        -- If no quest is active or the current quest doesn't match the target, start the target quest
         if not isInQuest or currentTitle ~= quest.DisplayName then
             QuestEvent:FireServer({Type = "RemoveQuest"})
-            task.wait(0.2) -- Increased delay for stability
+            task.wait(0.2) -- Delay for stability
             QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
             print("Started quest:", quest.DisplayName)
-        elseif canRepeat and farmSpecificEnabled and #manualFarmQuests > 1 then
-            -- Quest is complete and repeatable, move to the next quest
-            currentQuestIndex = currentQuestIndex + 1
-            if currentQuestIndex > #manualFarmQuests then
-                currentQuestIndex = 1 -- Loop back to the first quest
+        elseif not isInQuest or canRepeat then
+            -- Quest is complete (no quest active or repeatable), move to the next quest if multiple are selected
+            if farmSpecificEnabled and #manualFarmQuests > 1 then
+                currentQuestIndex = currentQuestIndex + 1
+                if currentQuestIndex > #manualFarmQuests then
+                    currentQuestIndex = 1 -- Loop back to the first quest
+                end
+                print("Switching to next quest:", manualFarmQuests[currentQuestIndex].DisplayName)
+                QuestEvent:FireServer({Type = "RemoveQuest"})
+                task.wait(0.2)
+                QuestEvent:FireServer({Quest = manualFarmQuests[currentQuestIndex].QuestName, Type = "RepeatQuest"})
             end
-            print("Switching to next quest:", manualFarmQuests[currentQuestIndex].DisplayName)
-            QuestEvent:FireServer({Type = "RemoveQuest"})
-            task.wait(0.2)
-            QuestEvent:FireServer({Quest = manualFarmQuests[currentQuestIndex].QuestName, Type = "RepeatQuest"})
         end
     end
 
@@ -158,7 +156,7 @@ return function(Rayfield, Window)
             if quest then
                 TeleportToArea(quest.MinLevel)
                 
-                -- Only check quest status every questCheckInterval seconds
+                -- Check quest status every questCheckInterval seconds
                 local currentTime = tick()
                 if currentTime - lastQuestCheckTime >= questCheckInterval then
                     StartQuestIfNeeded(quest)
@@ -167,7 +165,6 @@ return function(Rayfield, Window)
 
                 local enemy = GetEnemyForQuest(quest)
                 if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                    lastEnemyCheckTime = currentTime -- Reset timeout when enemy is found
                     local enemyHRP = enemy.HumanoidRootPart
                     local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
                     hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
@@ -179,17 +176,6 @@ return function(Rayfield, Window)
                         InAir = false,
                         UpTilt = false
                     })
-                elseif farmSpecificEnabled and #manualFarmQuests > 1 and currentTime - lastEnemyCheckTime >= enemyCheckTimeout then
-                    -- No enemy found for too long, switch to next quest
-                    currentQuestIndex = currentQuestIndex + 1
-                    if currentQuestIndex > #manualFarmQuests then
-                        currentQuestIndex = 1 -- Loop back to the first quest
-                    end
-                    print("No enemy found for", quest.DisplayName, "- Switching to next quest:", manualFarmQuests[currentQuestIndex].DisplayName)
-                    QuestEvent:FireServer({Type = "RemoveQuest"})
-                    task.wait(0.2)
-                    QuestEvent:FireServer({Quest = manualFarmQuests[currentQuestIndex].QuestName, Type = "RepeatQuest"})
-                    lastEnemyCheckTime = currentTime
                 end
             end
         end)
