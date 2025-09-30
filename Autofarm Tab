@@ -12,7 +12,10 @@ return function(Rayfield, Window)
     local superKillEnabled = false
     local farmSpecificEnabled = false
     local currentHealthConnection
-    local manualFarmQuest = nil
+    local manualFarmQuests = {} -- List of selected quests
+    local currentQuestIndex = 1 -- Tracks current quest in the list
+    local lastQuestCheckTime = 0
+    local questCheckInterval = 1 -- Check quest status every 1 second
 
     -- ========================
     -- Quests
@@ -89,11 +92,30 @@ return function(Rayfield, Window)
 
     local function StartQuestIfNeeded(quest)
         if not quest then return end
+
         local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
-        local currentTitle = questFrame.Frame.Title.Text
-        if currentTitle ~= quest.DisplayName then
-            QuestEvent:FireServer({Type = "RemoveQuest"})
-            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+        
+        -- Check if player is in a quest
+        local isInQuest = questFrame and questFrame.Visible
+        local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
+        local canRepeat = repeatFrame and repeatFrame.Visible
+
+        -- Only start a new quest if not in a quest or the current quest doesn't match
+        if not isInQuest or currentTitle ~= quest.DisplayName then
+            if canRepeat or not isInQuest then
+                QuestEvent:FireServer({Type = "RemoveQuest"})
+                task.wait(0.1) -- Small delay to ensure quest removal
+                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+            end
+        elseif canRepeat then
+            -- If quest is repeatable, move to the next quest
+            if farmSpecificEnabled and #manualFarmQuests > 0 then
+                currentQuestIndex = currentQuestIndex + 1
+                if currentQuestIndex > #manualFarmQuests then
+                    currentQuestIndex = 1 -- Loop back to the first quest
+                end
+            end
         end
     end
 
@@ -121,15 +143,21 @@ return function(Rayfield, Window)
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificEnabled and manualFarmQuest then
-                quest = manualFarmQuest
+            if farmSpecificEnabled and #manualFarmQuests > 0 then
+                quest = manualFarmQuests[currentQuestIndex]
             else
                 quest = GetCurrentQuest()
             end
 
             if quest then
                 TeleportToArea(quest.MinLevel)
-                StartQuestIfNeeded(quest)
+                
+                -- Only check quest status every questCheckInterval seconds
+                local currentTime = tick()
+                if currentTime - lastQuestCheckTime >= questCheckInterval then
+                    StartQuestIfNeeded(quest)
+                    lastQuestCheckTime = currentTime
+                end
             end
 
             local enemy = GetEnemyForQuest(quest)
@@ -189,35 +217,39 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateSection("Farm Specific Quest")
+    AutoFarmTab:CreateSection("Farm Specific Quests")
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
     end
 
     AutoFarmTab:CreateDropdown({
-        Name = "Choose Quest to Farm",
+        Name = "Choose Quests to Farm",
         Options = questOptions,
         CurrentOption = {questOptions[1]},
-        MultipleOptions = false,
+        MultipleOptions = true, -- Allow multiple selections
         Flag = "FarmQuestDropdown",
         Callback = function(options)
-            local questName = options[1]
-            for _, quest in ipairs(quests) do
-                if quest.DisplayName == questName then
-                    manualFarmQuest = quest
-                    break
+            manualFarmQuests = {} -- Clear previous selections
+            currentQuestIndex = 1 -- Reset to first quest
+            for _, questName in ipairs(options) do
+                for _, quest in ipairs(quests) do
+                    if quest.DisplayName == questName then
+                        table.insert(manualFarmQuests, quest)
+                        break
+                    end
                 end
             end
         end
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quest",
+        Name = "Farm Specific Quests",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
             farmSpecificEnabled = state
+            currentQuestIndex = 1 -- Reset to first quest when toggling
         end
     })
 end
