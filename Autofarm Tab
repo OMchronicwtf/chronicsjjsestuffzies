@@ -7,23 +7,23 @@ return function(Rayfield, Window)
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
     local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
+    -- Handle character respawn
     player.CharacterAdded:Connect(function(newChar)
         character = newChar
         hrp = newChar:WaitForChild("HumanoidRootPart")
     end)
 
+    -- State variables
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
-    local farmSpecificEnabled = false
+    local farmSpecificQuests = false
     local currentHealthConnection
     local selectedQuests = {}
     local currentQuestIndex = 1
     local questStartDelay = 0.5
 
-    -- ========================
-    -- Quests
-    -- ========================
+    -- Quest data
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -49,9 +49,7 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- ========================
-    -- Teleport Zones
-    -- ========================
+    -- Teleport zones
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -59,10 +57,8 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- ========================
-    -- Helpers
-    -- ========================
-    local function GetCurrentQuest()
+    -- Helper functions
+    local function GetLevelBasedQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
         for _, quest in ipairs(quests) do
@@ -73,7 +69,7 @@ return function(Rayfield, Window)
         return selectedQuest
     end
 
-    local function GetEnemyForQuest(quest)
+    local function FindEnemyForQuest(quest)
         if not quest then return nil end
         local targetLevel = quest.MinLevel
         for _, mob in pairs(workspace.Mobs:GetChildren()) do
@@ -85,7 +81,7 @@ return function(Rayfield, Window)
         return nil
     end
 
-    local function TeleportToArea(level)
+    local function TeleportToQuestArea(level)
         for _, area in ipairs(areaTeleports) do
             if level >= area.Min and level <= area.Max then
                 hrp.CFrame = area.CFrame
@@ -102,7 +98,7 @@ return function(Rayfield, Window)
         return not isInQuest and canRepeat
     end
 
-    local function StartQuestIfNeeded(quest)
+    local function StartQuest(quest)
         if not quest then return end
         local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
@@ -119,7 +115,7 @@ return function(Rayfield, Window)
         end
     end
 
-    local function AttachSuperKill(enemy)
+    local function ApplySuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
@@ -132,9 +128,7 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ========================
-    -- Core AutoFarm Logic
-    -- ========================
+    -- Auto-farm logic
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
@@ -144,33 +138,33 @@ return function(Rayfield, Window)
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificEnabled and #selectedQuests > 0 then
+            if farmSpecificQuests and #selectedQuests > 0 then
                 quest = selectedQuests[currentQuestIndex]
             else
-                quest = GetCurrentQuest()
+                quest = GetLevelBasedQuest()
             end
 
             if quest then
-                TeleportToArea(quest.MinLevel)
+                TeleportToQuestArea(quest.MinLevel)
 
-                if farmSpecificEnabled and #selectedQuests > 1 and IsQuestComplete() then
+                if farmSpecificQuests and #selectedQuests > 1 and IsQuestComplete() then
                     currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
                     quest = selectedQuests[currentQuestIndex]
                 end
-                StartQuestIfNeeded(quest)
-            end
+                StartQuest(quest)
 
-            local enemy = GetEnemyForQuest(quest)
-            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                local enemyHRP = enemy.HumanoidRootPart
-                local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
-                hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
-                AttachSuperKill(enemy)
-                M1Event:FireServer({
-                    type = "M1",
-                    InAir = false,
-                    UpTilt = false
-                })
+                local enemy = FindEnemyForQuest(quest)
+                if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                    local enemyHRP = enemy.HumanoidRootPart
+                    local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                    hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+                    ApplySuperKill(enemy)
+                    M1Event:FireServer({
+                        type = "M1",
+                        InAir = false,
+                        UpTilt = false
+                    })
+                end
             end
         end)
     end
@@ -187,9 +181,7 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ========================
-    -- UI Sections
-    -- ========================
+    -- UI setup
     AutoFarmTab:CreateSection("Main AutoFarm")
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
@@ -215,7 +207,7 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateSection("Farm Specific Quest")
+    AutoFarmTab:CreateSection("Farm Specific Quests")
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
@@ -243,11 +235,11 @@ return function(Rayfield, Window)
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quest",
+        Name = "Farm Specific Quests",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
-            farmSpecificEnabled = state
+            farmSpecificQuests = state
             if state and #selectedQuests > 0 then
                 currentQuestIndex = 1
             end
