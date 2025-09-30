@@ -13,7 +13,7 @@ return function(Rayfield, Window)
     local farmSpecificEnabled = false
     local currentHealthConnection
     local lastQuestCheckTime = 0
-    local questCheckInterval = 1 -- Check quest status every 1 second
+    local questCheckInterval = 1 -- seconds
 
     -- ========================
     -- Quests
@@ -93,17 +93,15 @@ return function(Rayfield, Window)
 
         local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-        
+
         local isInQuest = questFrame and questFrame.Visible
         local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
         local canRepeat = repeatFrame and repeatFrame.Visible
 
         if not isInQuest or currentTitle ~= quest.DisplayName then
-            if canRepeat or not isInQuest then
-                QuestEvent:FireServer({Type = "RemoveQuest"})
-                task.wait(0.1)
-                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-            end
+            QuestEvent:FireServer({Type = "RemoveQuest"})
+            task.wait(0.1)
+            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
         end
     end
 
@@ -142,11 +140,16 @@ return function(Rayfield, Window)
 
                 local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
                 local isInQuest = questFrame and questFrame.Visible
-                if not isInQuest then
+                local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
+
+                -- if quest is missing or not matching, rotate
+                if (not isInQuest) or (currentTitle ~= quest.DisplayName) then
                     questIndex = questIndex + 1
                     if questIndex > #selectedQuests then
                         questIndex = 1
                     end
+                    quest = selectedQuests[questIndex]
+                    StartQuestIfNeeded(quest)
                 end
             else
                 quest = GetCurrentQuest()
