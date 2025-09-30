@@ -102,24 +102,22 @@ return function(Rayfield, Window)
         local canRepeat = repeatFrame and repeatFrame.Visible
 
         -- Debug: Log quest status
-        -- print("Quest Status: isInQuest=", isInQuest, "currentTitle=", currentTitle, "canRepeat=", canRepeat, "targetQuest=", quest.DisplayName)
+        print("Quest Status: isInQuest=", isInQuest, "currentTitle=", currentTitle, "canRepeat=", canRepeat, "targetQuest=", quest.DisplayName, "currentQuestIndex=", currentQuestIndex)
 
-        -- Only start a new quest if not in a quest or the current quest doesn't match
+        -- If not in the correct quest or no quest is active, start the target quest
         if not isInQuest or currentTitle ~= quest.DisplayName then
-            if canRepeat or not isInQuest then
-                QuestEvent:FireServer({Type = "RemoveQuest"})
-                task.wait(0.1) -- Small delay to ensure quest removal
-                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-                -- print("Started quest:", quest.DisplayName)
-            end
+            QuestEvent:FireServer({Type = "RemoveQuest"})
+            task.wait(0.1) -- Small delay to ensure quest removal
+            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+            print("Started quest:", quest.DisplayName)
         elseif canRepeat then
             -- Quest is complete and repeatable, move to the next quest
-            if farmSpecificEnabled and #manualFarmQuests > 0 then
+            if farmSpecificEnabled and #manualFarmQuests > 1 then -- Only cycle if multiple quests are selected
                 currentQuestIndex = currentQuestIndex + 1
                 if currentQuestIndex > #manualFarmQuests then
                     currentQuestIndex = 1 -- Loop back to the first quest
                 end
-                -- print("Switching to next quest:", manualFarmQuests[currentQuestIndex].DisplayName)
+                print("Switching to next quest:", manualFarmQuests[currentQuestIndex].DisplayName)
                 QuestEvent:FireServer({Type = "RemoveQuest"})
                 task.wait(0.1)
                 QuestEvent:FireServer({Quest = manualFarmQuests[currentQuestIndex].QuestName, Type = "RepeatQuest"})
@@ -248,8 +246,7 @@ return function(Rayfield, Window)
                     end
                 end
             end
-            -- Debug: Log selected quests
-            -- print("Selected quests:", table.concat(options, ", "))
+            print("Selected quests:", table.concat(options, ", "))
         end
     })
 
@@ -260,6 +257,7 @@ return function(Rayfield, Window)
         Callback = function(state)
             farmSpecificEnabled = state
             currentQuestIndex = 1 -- Reset to first quest when toggling
+            print("Farm Specific Quests toggled:", state, "Current quest index:", currentQuestIndex)
         end
     })
 end
