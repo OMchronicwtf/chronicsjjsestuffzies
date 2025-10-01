@@ -5,19 +5,17 @@ return function(Rayfield, Window)
     local hrp = character:WaitForChild("HumanoidRootPart")
     local RunService = game:GetService("RunService")
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
-    local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
     local farmSpecificEnabled = false
     local currentHealthConnection
-    local lastQuestCheckTime = 0
-    local questCheckInterval = 1 -- seconds
+    local chainedQuestsEnabled = false
+    local selectedChainedQuests = {}
+    local currentChainedIndex = 1
 
-    -- ========================
-    -- Quests
-    -- ========================
+    -- Quests list
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -43,9 +41,7 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- ========================
-    -- Teleport Zones
-    -- ========================
+    -- Teleport zones
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -53,9 +49,7 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- ========================
     -- Helpers
-    -- ========================
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -88,23 +82,6 @@ return function(Rayfield, Window)
         end
     end
 
-    local function StartQuestIfNeeded(quest)
-        if not quest then return end
-
-        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
-        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-
-        local isInQuest = questFrame and questFrame.Visible
-        local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
-        local canRepeat = repeatFrame and repeatFrame.Visible
-
-        if not isInQuest or currentTitle ~= quest.DisplayName then
-            QuestEvent:FireServer({Type = "RemoveQuest"})
-            task.wait(0.1)
-            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-        end
-    end
-
     local function AttachSuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
@@ -118,15 +95,6 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ========================
-    -- Multi-Quest Support
-    -- ========================
-    local selectedQuests = {}
-    local questIndex = 1
-
-    -- ========================
-    -- Core AutoFarm Logic
-    -- ========================
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
@@ -135,22 +103,10 @@ return function(Rayfield, Window)
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificEnabled and #selectedQuests > 0 then
-                quest = selectedQuests[questIndex]
-
-                local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
-                local isInQuest = questFrame and questFrame.Visible
-                local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
-
-                -- if quest is missing or not matching, rotate
-                if (not isInQuest) or (currentTitle ~= quest.DisplayName) then
-                    questIndex = questIndex + 1
-                    if questIndex > #selectedQuests then
-                        questIndex = 1
-                    end
-                    quest = selectedQuests[questIndex]
-                    StartQuestIfNeeded(quest)
-                end
+            if farmSpecificEnabled and #selectedChainedQuests > 0 then
+                quest = selectedChainedQuests[currentChainedIndex]
+            elseif farmSpecificEnabled then
+                quest = selectedChainedQuests[1]
             else
                 quest = GetCurrentQuest()
             end
@@ -158,11 +114,10 @@ return function(Rayfield, Window)
             if quest then
                 TeleportToArea(quest.MinLevel)
 
-                local currentTime = tick()
-                if currentTime - lastQuestCheckTime >= questCheckInterval then
-                    StartQuestIfNeeded(quest)
-                    lastQuestCheckTime = currentTime
-                end
+                -- Start quest automatically
+                local Event = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
+                Event:FireServer({Type = "RemoveQuest"})
+                Event:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
             end
 
             local enemy = GetEnemyForQuest(quest)
@@ -178,6 +133,14 @@ return function(Rayfield, Window)
                     InAir = false,
                     UpTilt = false
                 })
+
+                -- Move to next chained quest if this enemy dies
+                if chainedQuestsEnabled and #selectedChainedQuests > 1 and enemy.Humanoid.Health <= 0 then
+                    currentChainedIndex = currentChainedIndex + 1
+                    if currentChainedIndex > #selectedChainedQuests then
+                        currentChainedIndex = 1
+                    end
+                end
             end
         end)
     end
@@ -192,12 +155,10 @@ return function(Rayfield, Window)
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
         end
+        currentChainedIndex = 1
     end
 
-    -- ========================
-    -- UI Sections
-    -- ========================
-    AutoFarmTab:CreateSection("Main AutoFarm")
+    -- UI
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -211,8 +172,6 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateDivider()
-
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
         CurrentValue = false,
@@ -222,42 +181,40 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateSection("Farm Specific Quests")
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
     end
 
     AutoFarmTab:CreateDropdown({
-        Name = "Choose Quests to Farm",
+        Name = "Choose Quest(s) to Farm",
         Options = questOptions,
         CurrentOption = {questOptions[1]},
         MultipleOptions = true,
         Flag = "FarmQuestDropdown",
         Callback = function(options)
-            selectedQuests = {}
+            selectedChainedQuests = {}
             for _, questName in ipairs(options) do
                 for _, quest in ipairs(quests) do
                     if quest.DisplayName == questName then
-                        table.insert(selectedQuests, quest)
+                        table.insert(selectedChainedQuests, quest)
                         break
                     end
                 end
             end
-            questIndex = 1
         end
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Selected Quests",
+        Name = "Farm Specific Quest(s)",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
             farmSpecificEnabled = state
-            if not state then
-                selectedQuests = {}
-                questIndex = 1
-            end
+            chainedQuestsEnabled = state -- enable chained logic automatically
         end
     })
+
+    -- Chained Quests Section label
+    AutoFarmTab:CreateLabel("Chained Quests", "arrow-right", Color3.fromRGB(255,255,255))
 end
