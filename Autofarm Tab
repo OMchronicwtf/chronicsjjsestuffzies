@@ -242,6 +242,7 @@ return function(Rayfield, Window)
         Callback = function(options)
             manualFarmQuests = {} -- Clear previous selections
             currentQuestIndex = 1 -- Reset to first quest
+            print("Dropdown options received:", table.concat(options, ", "))
             for _, questName in ipairs(options) do
                 for _, quest in ipairs(quests) do
                     if quest.DisplayName == questName then
@@ -250,7 +251,10 @@ return function(Rayfield, Window)
                     end
                 end
             end
-            print("Selected quests:", table.concat(options, ", "))
+            print("manualFarmQuests populated with:", #manualFarmQuests, "quests")
+            for i, quest in ipairs(manualFarmQuests) do
+                print("Quest", i, ":", quest.DisplayName)
+            end
         end
     })
 
@@ -264,4 +268,14 @@ return function(Rayfield, Window)
             print("Farm Specific Quests toggled:", state, "Current quest index:", currentQuestIndex)
         end
     })
+
+    --[[
+    Note: If multi-select is not working in the dropdown (i.e., you can only select one quest),
+    this is likely due to a limitation in the Rayfield UI library or a game-specific UI conflict.
+    To confirm, check the console output for the "Dropdown options received" log to see if multiple
+    quests are being passed to the Callback. If only one quest appears, the Rayfield library may not
+    support MultipleOptions = true. As a workaround, you can replace the dropdown with multiple
+    single-select dropdowns or a different UI element (e.g., toggles for each quest). Contact the
+    script developer or provide console output for further assistance.
+    ]]
 end
