@@ -7,24 +7,17 @@ return function(Rayfield, Window)
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
     local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
-    -- Handle character respawn
-    player.CharacterAdded:Connect(function(newChar)
-        character = newChar
-        hrp = newChar:WaitForChild("HumanoidRootPart")
-    end)
-
-    -- State variables
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
-    local farmSpecificQuests = false
+    local farmSpecificEnabled = false
     local currentHealthConnection
-    local selectedQuests = {}
-    local currentQuestIndex = 1
-    local questStartDelay = 0.5
-    local autoUpdateStatus = false
+    local lastQuestCheckTime = 0
+    local questCheckInterval = 1 -- seconds
 
-    -- Quest data
+    -- ========================
+    -- Quests
+    -- ========================
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -50,7 +43,9 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- Teleport zones
+    -- ========================
+    -- Teleport Zones
+    -- ========================
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -58,19 +53,10 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- Player info and stats UI
-    local InfoParagraph = AutoFarmTab:CreateParagraph({
-        Title = "Player Info",
-        Content = "Toggle 'Auto Update Status' to view info"
-    })
-
-    local StatsParagraph = AutoFarmTab:CreateParagraph({
-        Title = "Player Stats",
-        Content = "Toggle 'Auto Update Status' to view stats"
-    })
-
-    -- Helper functions
-    local function GetLevelBasedQuest()
+    -- ========================
+    -- Helpers
+    -- ========================
+    local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
         for _, quest in ipairs(quests) do
@@ -81,7 +67,7 @@ return function(Rayfield, Window)
         return selectedQuest
     end
 
-    local function FindEnemyForQuest(quest)
+    local function GetEnemyForQuest(quest)
         if not quest then return nil end
         local targetLevel = quest.MinLevel
         for _, mob in pairs(workspace.Mobs:GetChildren()) do
@@ -93,7 +79,7 @@ return function(Rayfield, Window)
         return nil
     end
 
-    local function TeleportToQuestArea(level)
+    local function TeleportToArea(level)
         for _, area in ipairs(areaTeleports) do
             if level >= area.Min and level <= area.Max then
                 hrp.CFrame = area.CFrame
@@ -102,32 +88,24 @@ return function(Rayfield, Window)
         end
     end
 
-    local function IsQuestComplete()
-        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
-        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-        local isInQuest = questFrame and questFrame.Visible
-        local canRepeat = repeatFrame and repeatFrame.Visible
-        return not isInQuest and canRepeat
-    end
-
-    local function StartQuest(quest)
+    local function StartQuestIfNeeded(quest)
         if not quest then return end
-        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+
+        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+
         local isInQuest = questFrame and questFrame.Visible
         local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
         local canRepeat = repeatFrame and repeatFrame.Visible
 
         if not isInQuest or currentTitle ~= quest.DisplayName then
-            if canRepeat or not isInQuest then
-                QuestEvent:FireServer({Type = "RemoveQuest"})
-                task.wait(questStartDelay)
-                QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
-            end
+            QuestEvent:FireServer({Type = "RemoveQuest"})
+            task.wait(0.1)
+            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
         end
     end
 
-    local function ApplySuperKill(enemy)
+    local function AttachSuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
@@ -140,117 +118,66 @@ return function(Rayfield, Window)
         end
     end
 
-    local function UpdatePlayerInfo()
-        -- Player Info
-        local areaHandler = player.PlayerGui:FindFirstChild("Area") and player.PlayerGui.Area:FindFirstChild("Handler")
-        local currentArea = areaHandler and areaHandler:FindFirstChild("Value") and areaHandler.Value.Value or "Unknown"
+    -- ========================
+    -- Multi-Quest Support
+    -- ========================
+    local selectedQuests = {}
+    local questIndex = 1
 
-        local dialogueGui = player.PlayerGui:FindFirstChild("Dialogue")
-        local inDialogue = dialogueGui and dialogueGui.Enabled and "Yes" or "No"
-
-        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
-        local questStatus = questFrame and questFrame.Visible and "In Quest" or "Not in Quest"
-        local currentQuestTitle = questFrame and questFrame.Visible and questFrame.Frame.Title.Text or "None"
-
-        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-        local repeatStatus = repeatFrame and repeatFrame.Visible and "Can Repeat" or "Cannot Repeat"
-
-        local mobileGui = player.PlayerGui:FindFirstChild("Mobile")
-        local platform = mobileGui and mobileGui.Enabled and "Mobile" or "PC"
-
-        local bossNameValue = player.PlayerGui:FindFirstChild("BossName")
-        local lastBoss = bossNameValue and bossNameValue.Value or "None"
-
-        local infoStats = {
-            {Name = "Platform", Value = platform},
-            {Name = "Current Area", Value = currentArea},
-            {Name = "In Dialogue", Value = inDialogue},
-            {Name = "Quest Status", Value = questStatus},
-            {Name = "Current Quest", Value = currentQuestTitle},
-            {Name = "Repeat Quest", Value = repeatStatus},
-            {Name = "Last Boss Attacked", Value = lastBoss}
-        }
-
-        local infoText = ""
-        for _, stat in ipairs(infoStats) do
-            infoText = infoText .. stat.Name .. ": " .. stat.Value .. "\n"
-        end
-
-        InfoParagraph:Set({
-            Title = "Player Info",
-            Content = infoText
-        })
-
-        -- Player Stats
-        local dataFolder = player:FindFirstChild("Data")
-        local statValues = {
-            {Name = "Level", Value = dataFolder and dataFolder:FindFirstChild("Level") and dataFolder.Level.Value or "N/A"},
-            {Name = "Cash", Value = dataFolder and dataFolder:FindFirstChild("Cash") and dataFolder.Cash.Value or "N/A"},
-            {Name = "Gems", Value = dataFolder and dataFolder:FindFirstChild("Gems") and dataFolder.Gems.Value or "N/A"},
-            {Name = "Stamina", Value = dataFolder and dataFolder:FindFirstChild("Stamina") and dataFolder.Stamina.Value or "N/A"},
-            {Name = "Max Stamina", Value = dataFolder and dataFolder:FindFirstChild("MaxStamina") and dataFolder.MaxStamina.Value or "N/A"},
-            {Name = "Respect", Value = dataFolder and dataFolder:FindFirstChild("Respect") and dataFolder.Respect.Value or "N/A"},
-            {Name = "Stat Points", Value = dataFolder and dataFolder:FindFirstChild("Points") and dataFolder.Points.Value or "N/A"}
-        }
-
-        local statsText = ""
-        for _, stat in ipairs(statValues) do
-            statsText = statsText .. stat.Name .. ": " .. stat.Value .. "\n"
-        end
-
-        StatsParagraph:Set({
-            Title = "Player Stats",
-            Content = statsText
-        })
-    end
-
-    -- Auto-update status loop
-    task.spawn(function()
-        while true do
-            if autoUpdateStatus then
-                UpdatePlayerInfo()
-            end
-            task.wait(1)
-        end
-    end)
-
-    -- Auto-farm logic
+    -- ========================
+    -- Core AutoFarm Logic
+    -- ========================
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
-        currentQuestIndex = 1
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificQuests and #selectedQuests > 0 then
-                quest = selectedQuests[currentQuestIndex]
+            if farmSpecificEnabled and #selectedQuests > 0 then
+                quest = selectedQuests[questIndex]
+
+                local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+                local isInQuest = questFrame and questFrame.Visible
+                local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
+
+                -- if quest is missing or not matching, rotate
+                if (not isInQuest) or (currentTitle ~= quest.DisplayName) then
+                    questIndex = questIndex + 1
+                    if questIndex > #selectedQuests then
+                        questIndex = 1
+                    end
+                    quest = selectedQuests[questIndex]
+                    StartQuestIfNeeded(quest)
+                end
             else
-                quest = GetLevelBasedQuest()
+                quest = GetCurrentQuest()
             end
 
             if quest then
-                TeleportToQuestArea(quest.MinLevel)
+                TeleportToArea(quest.MinLevel)
 
-                if farmSpecificQuests and #selectedQuests > 1 and IsQuestComplete() then
-                    currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
-                    quest = selectedQuests[currentQuestIndex]
+                local currentTime = tick()
+                if currentTime - lastQuestCheckTime >= questCheckInterval then
+                    StartQuestIfNeeded(quest)
+                    lastQuestCheckTime = currentTime
                 end
-                StartQuest(quest)
+            end
 
-                local enemy = FindEnemyForQuest(quest)
-                if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                    local enemyHRP = enemy.HumanoidRootPart
-                    local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
-                    hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
-                    ApplySuperKill(enemy)
-                    M1Event:FireServer({
-                        type = "M1",
-                        InAir = false,
-                        UpTilt = false
-                    })
-                end
+            local enemy = GetEnemyForQuest(quest)
+            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                local enemyHRP = enemy.HumanoidRootPart
+                local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+
+                AttachSuperKill(enemy)
+
+                M1Event:FireServer({
+                    type = "M1",
+                    InAir = false,
+                    UpTilt = false
+                })
             end
         end)
     end
@@ -267,7 +194,9 @@ return function(Rayfield, Window)
         end
     end
 
-    -- UI setup
+    -- ========================
+    -- UI Sections
+    -- ========================
     AutoFarmTab:CreateSection("Main AutoFarm")
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
@@ -281,6 +210,8 @@ return function(Rayfield, Window)
             end
         end
     })
+
+    AutoFarmTab:CreateDivider()
 
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
@@ -300,7 +231,7 @@ return function(Rayfield, Window)
     AutoFarmTab:CreateDropdown({
         Name = "Choose Quests to Farm",
         Options = questOptions,
-        CurrentOption = {},
+        CurrentOption = {questOptions[1]},
         MultipleOptions = true,
         Flag = "FarmQuestDropdown",
         Callback = function(options)
@@ -313,32 +244,19 @@ return function(Rayfield, Window)
                     end
                 end
             end
-            table.sort(selectedQuests, function(a, b) return a.MinLevel > b.MinLevel end)
-            currentQuestIndex = 1
+            questIndex = 1
         end
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quests",
+        Name = "Farm Selected Quests",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
-            farmSpecificQuests = state
-            if state and #selectedQuests > 0 then
-                currentQuestIndex = 1
-            end
-        end
-    })
-
-    AutoFarmTab:CreateSection("Player Status")
-    AutoFarmTab:CreateToggle({
-        Name = "Auto Update Status",
-        CurrentValue = false,
-        Flag = "AutoUpdateStatus",
-        Callback = function(state)
-            autoUpdateStatus = state
-            if state then
-                UpdatePlayerInfo()
+            farmSpecificEnabled = state
+            if not state then
+                selectedQuests = {}
+                questIndex = 1
             end
         end
     })
