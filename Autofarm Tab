@@ -72,12 +72,18 @@ return function(Rayfield, Window)
     local function GetEnemyForQuest(quest)
         if not quest then return nil end
         local targetLevel = quest.MinLevel
+        local availableMobs = {}
         for _, mob in pairs(workspace.Mobs:GetChildren()) do
             local levelNum = tonumber(mob.Name:match("Lv(%d+)"))
+            if levelNum then
+                table.insert(availableMobs, "Lv" .. levelNum)
+            end
             if levelNum == targetLevel and mob:FindFirstChild("HumanoidRootPart") and mob:FindFirstChild("Humanoid") then
+                print("Targeting enemy:", mob.Name, "for quest:", quest.DisplayName)
                 return mob
             end
         end
+        print("No enemy found for quest:", quest.DisplayName, "targetLevel:", targetLevel, "available mobs:", table.concat(availableMobs, ", "))
         return nil
     end
 
@@ -85,6 +91,7 @@ return function(Rayfield, Window)
         for _, area in ipairs(areaTeleports) do
             if level >= area.Min and level <= area.Max then
                 hrp.CFrame = area.CFrame
+                print("Teleported to area for level:", level)
                 break
             end
         end
@@ -106,9 +113,13 @@ return function(Rayfield, Window)
     local function StartQuest(quest)
         if not QuestEvent then return end
         QuestEvent:FireServer({Type = "RemoveQuest"})
-        task.wait(0.3) -- Increased delay for stability
+        task.wait(0.5) -- Increased delay for quest switch stability
         QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
         print("Started quest:", quest.DisplayName)
+        -- Force teleport to ensure correct area
+        TeleportToArea(quest.MinLevel)
+        -- Wait briefly for enemies to spawn
+        task.wait(0.5)
     end
 
     -- ======================
@@ -165,21 +176,28 @@ return function(Rayfield, Window)
                     lastQuestCheckTime = currentTime
                 end
 
+                -- Ensure player is in the correct area
                 TeleportToArea(quest.MinLevel)
 
-                local enemy = GetEnemyForQuest(quest)
-                if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                    local enemyHRP = enemy.HumanoidRootPart
-                    local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
-                    hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+                -- Verify active quest matches target quest
+                local currentTitle = inQuest and questGui.Frame:FindFirstChild("Title") and questGui.Frame.Title.Text or "None"
+                if inQuest and currentTitle == quest.DisplayName then
+                    local enemy = GetEnemyForQuest(quest)
+                    if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                        local enemyHRP = enemy.HumanoidRootPart
+                        local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                        hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
 
-                    AttachSuperKill(enemy)
+                        AttachSuperKill(enemy)
 
-                    M1Event:FireServer({
-                        type = "M1",
-                        InAir = false,
-                        UpTilt = false
-                    })
+                        M1Event:FireServer({
+                            type = "M1",
+                            InAir = false,
+                            UpTilt = false
+                        })
+                    end
+                else
+                    print("Waiting for quest to sync: currentTitle=", currentTitle, "expected=", quest.DisplayName)
                 end
             end
         end)
@@ -270,12 +288,9 @@ return function(Rayfield, Window)
     })
 
     --[[
-    Note: If multi-select is not working in the dropdown (i.e., you can only select one quest),
-    this is likely due to a limitation in the Rayfield UI library or a game-specific UI conflict.
-    To confirm, check the console output for the "Dropdown options received" log to see if multiple
-    quests are being passed to the Callback. If only one quest appears, the Rayfield library may not
-    support MultipleOptions = true. As a workaround, you can replace the dropdown with multiple
-    single-select dropdowns or a different UI element (e.g., toggles for each quest). Contact the
-    script developer or provide console output for further assistance.
+    Note: If multi-select is not working in the dropdown, check the console output for
+    "Dropdown options received" to confirm if multiple quests are passed. If only one quest
+    appears, the Rayfield library may not support MultipleOptions = true. A workaround is to
+    use multiple single-select dropdowns or toggles for each quest.
     ]]
 end
