@@ -7,18 +7,24 @@ return function(Rayfield, Window)
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
     local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
+    -- Handle character respawn
+    player.CharacterAdded:Connect(function(newChar)
+        character = newChar
+        hrp = newChar:WaitForChild("HumanoidRootPart")
+    end)
+
+    -- State variables
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
-    local farmSpecificEnabled = false
+    local farmSpecificQuests = false
     local currentHealthConnection
-    local manualFarmQuest = nil
-    local lastQuestCheckTime = 0
-    local questCheckInterval = 1 -- Check quest status every 1 second
+    local selectedQuests = {}
+    local currentQuestIndex = 1
+    local questStartDelay = 0.5
+    local autoUpdateStatus = false
 
-    -- ========================
-    -- Quests (unchanged)
-    -- ========================
+    -- Quest data
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -44,9 +50,7 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
-    -- ========================
-    -- Teleport Zones (unchanged)
-    -- ========================
+    -- Teleport zones
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -54,10 +58,19 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- ========================
-    -- Helpers
-    -- ========================
-    local function GetCurrentQuest()
+    -- Player info and stats UI
+    local InfoParagraph = AutoFarmTab:CreateParagraph({
+        Title = "Player Info",
+        Content = "Toggle 'Auto Update Status' to view info"
+    })
+
+    local StatsParagraph = AutoFarmTab:CreateParagraph({
+        Title = "Player Stats",
+        Content = "Toggle 'Auto Update Status' to view stats"
+    })
+
+    -- Helper functions
+    local function GetLevelBasedQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
         for _, quest in ipairs(quests) do
@@ -68,7 +81,7 @@ return function(Rayfield, Window)
         return selectedQuest
     end
 
-    local function GetEnemyForQuest(quest)
+    local function FindEnemyForQuest(quest)
         if not quest then return nil end
         local targetLevel = quest.MinLevel
         for _, mob in pairs(workspace.Mobs:GetChildren()) do
@@ -80,7 +93,7 @@ return function(Rayfield, Window)
         return nil
     end
 
-    local function TeleportToArea(level)
+    local function TeleportToQuestArea(level)
         for _, area in ipairs(areaTeleports) do
             if level >= area.Min and level <= area.Max then
                 hrp.CFrame = area.CFrame
@@ -89,28 +102,32 @@ return function(Rayfield, Window)
         end
     end
 
-    local function StartQuestIfNeeded(quest)
-        if not quest then return end
-
-        local questFrame = player.PlayerGui:WaitForChild("Quest"):WaitForChild("Mission")
+    local function IsQuestComplete()
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
         local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
-        
-        -- Check if player is in a quest
+        local isInQuest = questFrame and questFrame.Visible
+        local canRepeat = repeatFrame and repeatFrame.Visible
+        return not isInQuest and canRepeat
+    end
+
+    local function StartQuest(quest)
+        if not quest then return end
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
         local isInQuest = questFrame and questFrame.Visible
         local currentTitle = isInQuest and questFrame.Frame.Title.Text or ""
         local canRepeat = repeatFrame and repeatFrame.Visible
 
-        -- Only start a new quest if not in a quest or the current quest doesn't match
         if not isInQuest or currentTitle ~= quest.DisplayName then
             if canRepeat or not isInQuest then
                 QuestEvent:FireServer({Type = "RemoveQuest"})
-                task.wait(0.1) -- Small delay to ensure quest removal
+                task.wait(questStartDelay)
                 QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
             end
         end
     end
 
-    local function AttachSuperKill(enemy)
+    local function ApplySuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
@@ -123,47 +140,117 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ========================
-    -- Core AutoFarm Logic
-    -- ========================
+    local function UpdatePlayerInfo()
+        -- Player Info
+        local areaHandler = player.PlayerGui:FindFirstChild("Area") and player.PlayerGui.Area:FindFirstChild("Handler")
+        local currentArea = areaHandler and areaHandler:FindFirstChild("Value") and areaHandler.Value.Value or "Unknown"
+
+        local dialogueGui = player.PlayerGui:FindFirstChild("Dialogue")
+        local inDialogue = dialogueGui and dialogueGui.Enabled and "Yes" or "No"
+
+        local questFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Mission")
+        local questStatus = questFrame and questFrame.Visible and "In Quest" or "Not in Quest"
+        local currentQuestTitle = questFrame and questFrame.Visible and questFrame.Frame.Title.Text or "None"
+
+        local repeatFrame = player.PlayerGui:FindFirstChild("Quest") and player.PlayerGui.Quest:FindFirstChild("Repeat")
+        local repeatStatus = repeatFrame and repeatFrame.Visible and "Can Repeat" or "Cannot Repeat"
+
+        local mobileGui = player.PlayerGui:FindFirstChild("Mobile")
+        local platform = mobileGui and mobileGui.Enabled and "Mobile" or "PC"
+
+        local bossNameValue = player.PlayerGui:FindFirstChild("BossName")
+        local lastBoss = bossNameValue and bossNameValue.Value or "None"
+
+        local infoStats = {
+            {Name = "Platform", Value = platform},
+            {Name = "Current Area", Value = currentArea},
+            {Name = "In Dialogue", Value = inDialogue},
+            {Name = "Quest Status", Value = questStatus},
+            {Name = "Current Quest", Value = currentQuestTitle},
+            {Name = "Repeat Quest", Value = repeatStatus},
+            {Name = "Last Boss Attacked", Value = lastBoss}
+        }
+
+        local infoText = ""
+        for _, stat in ipairs(infoStats) do
+            infoText = infoText .. stat.Name .. ": " .. stat.Value .. "\n"
+        end
+
+        InfoParagraph:Set({
+            Title = "Player Info",
+            Content = infoText
+        })
+
+        -- Player Stats
+        local dataFolder = player:FindFirstChild("Data")
+        local statValues = {
+            {Name = "Level", Value = dataFolder and dataFolder:FindFirstChild("Level") and dataFolder.Level.Value or "N/A"},
+            {Name = "Cash", Value = dataFolder and dataFolder:FindFirstChild("Cash") and dataFolder.Cash.Value or "N/A"},
+            {Name = "Gems", Value = dataFolder and dataFolder:FindFirstChild("Gems") and dataFolder.Gems.Value or "N/A"},
+            {Name = "Stamina", Value = dataFolder and dataFolder:FindFirstChild("Stamina") and dataFolder.Stamina.Value or "N/A"},
+            {Name = "Max Stamina", Value = dataFolder and dataFolder:FindFirstChild("MaxStamina") and dataFolder.MaxStamina.Value or "N/A"},
+            {Name = "Respect", Value = dataFolder and dataFolder:FindFirstChild("Respect") and dataFolder.Respect.Value or "N/A"},
+            {Name = "Stat Points", Value = dataFolder and dataFolder:FindFirstChild("Points") and dataFolder.Points.Value or "N/A"}
+        }
+
+        local statsText = ""
+        for _, stat in ipairs(statValues) do
+            statsText = statsText .. stat.Name .. ": " .. stat.Value .. "\n"
+        end
+
+        StatsParagraph:Set({
+            Title = "Player Stats",
+            Content = statsText
+        })
+    end
+
+    -- Auto-update status loop
+    task.spawn(function()
+        while true do
+            if autoUpdateStatus then
+                UpdatePlayerInfo()
+            end
+            task.wait(1)
+        end
+    end)
+
+    -- Auto-farm logic
     local function StartAutoFarm()
         if autoFarmConnection then return end
         autoFarmEnabled = true
+        currentQuestIndex = 1
 
         autoFarmConnection = RunService.Heartbeat:Connect(function()
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificEnabled and manualFarmQuest then
-                quest = manualFarmQuest
+            if farmSpecificQuests and #selectedQuests > 0 then
+                quest = selectedQuests[currentQuestIndex]
             else
-                quest = GetCurrentQuest()
+                quest = GetLevelBasedQuest()
             end
 
             if quest then
-                TeleportToArea(quest.MinLevel)
-                
-                -- Only check quest status every questCheckInterval seconds
-                local currentTime = tick()
-                if currentTime - lastQuestCheckTime >= questCheckInterval then
-                    StartQuestIfNeeded(quest)
-                    lastQuestCheckTime = currentTime
+                TeleportToQuestArea(quest.MinLevel)
+
+                if farmSpecificQuests and #selectedQuests > 1 and IsQuestComplete() then
+                    currentQuestIndex = (currentQuestIndex % #selectedQuests) + 1
+                    quest = selectedQuests[currentQuestIndex]
                 end
-            end
+                StartQuest(quest)
 
-            local enemy = GetEnemyForQuest(quest)
-            if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
-                local enemyHRP = enemy.HumanoidRootPart
-                local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
-                hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
-
-                AttachSuperKill(enemy)
-
-                M1Event:FireServer({
-                    type = "M1",
-                    InAir = false,
-                    UpTilt = false
-                })
+                local enemy = FindEnemyForQuest(quest)
+                if enemy and enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+                    local enemyHRP = enemy.HumanoidRootPart
+                    local behindPos = enemyHRP.Position - (enemyHRP.CFrame.LookVector * 5)
+                    hrp.CFrame = CFrame.new(behindPos, enemyHRP.Position)
+                    ApplySuperKill(enemy)
+                    M1Event:FireServer({
+                        type = "M1",
+                        InAir = false,
+                        UpTilt = false
+                    })
+                end
             end
         end)
     end
@@ -180,9 +267,7 @@ return function(Rayfield, Window)
         end
     end
 
-    -- ========================
-    -- UI Sections (unchanged)
-    -- ========================
+    -- UI setup
     AutoFarmTab:CreateSection("Main AutoFarm")
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
@@ -197,8 +282,6 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateDivider()
-
     AutoFarmTab:CreateToggle({
         Name = "Enable SuperKill",
         CurrentValue = false,
@@ -208,35 +291,55 @@ return function(Rayfield, Window)
         end
     })
 
-    AutoFarmTab:CreateSection("Farm Specific Quest")
+    AutoFarmTab:CreateSection("Farm Specific Quests")
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
     end
 
     AutoFarmTab:CreateDropdown({
-        Name = "Choose Quest to Farm",
+        Name = "Choose Quests to Farm",
         Options = questOptions,
-        CurrentOption = {questOptions[1]},
-        MultipleOptions = false,
+        CurrentOption = {},
+        MultipleOptions = true,
         Flag = "FarmQuestDropdown",
         Callback = function(options)
-            local questName = options[1]
-            for _, quest in ipairs(quests) do
-                if quest.DisplayName == questName then
-                    manualFarmQuest = quest
-                    break
+            selectedQuests = {}
+            for _, questName in ipairs(options) do
+                for _, quest in ipairs(quests) do
+                    if quest.DisplayName == questName then
+                        table.insert(selectedQuests, quest)
+                        break
+                    end
                 end
             end
+            table.sort(selectedQuests, function(a, b) return a.MinLevel > b.MinLevel end)
+            currentQuestIndex = 1
         end
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quest",
+        Name = "Farm Specific Quests",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
-            farmSpecificEnabled = state
+            farmSpecificQuests = state
+            if state and #selectedQuests > 0 then
+                currentQuestIndex = 1
+            end
+        end
+    })
+
+    AutoFarmTab:CreateSection("Player Status")
+    AutoFarmTab:CreateToggle({
+        Name = "Auto Update Status",
+        CurrentValue = false,
+        Flag = "AutoUpdateStatus",
+        Callback = function(state)
+            autoUpdateStatus = state
+            if state then
+                UpdatePlayerInfo()
+            end
         end
     })
 end
