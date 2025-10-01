@@ -5,17 +5,18 @@ return function(Rayfield, Window)
     local hrp = character:WaitForChild("HumanoidRootPart")
     local RunService = game:GetService("RunService")
     local M1Event = game:GetService("ReplicatedStorage").Resource.Remotes.M1
+    local QuestEvent = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
 
     local autoFarmEnabled = false
     local autoFarmConnection
     local superKillEnabled = false
     local farmSpecificEnabled = false
     local currentHealthConnection
-    local chainedQuestsEnabled = false
-    local selectedChainedQuests = {}
-    local currentChainedIndex = 1
+    local manualFarmQuest = nil
 
+    -- ===========================
     -- Quests list
+    -- ===========================
     local quests = {
         {MinLevel = 1, QuestName = "The Start", DisplayName = "Level 1 → The Start"},
         {MinLevel = 10, QuestName = "Quest 1", DisplayName = "Level 10 → Quest 1"},
@@ -41,7 +42,9 @@ return function(Rayfield, Window)
         {MinLevel = 800, QuestName = "Quest 21", DisplayName = "Level 800 → Quest 21"},
     }
 
+    -- ===========================
     -- Teleport zones
+    -- ===========================
     local areaTeleports = {
         {Min = 1, Max = 50, CFrame = CFrame.new(-342.96, 11.42, -271.92)},
         {Min = 75, Max = 200, CFrame = CFrame.new(607.02, 55.88, -345.22)},
@@ -49,7 +52,9 @@ return function(Rayfield, Window)
         {Min = 500, Max = math.huge, CFrame = CFrame.new(1244.57, 53.17, -1478.92)},
     }
 
-    -- Helpers
+    -- ===========================
+    -- Helper functions
+    -- ===========================
     local function GetCurrentQuest()
         local level = player:WaitForChild("Data"):WaitForChild("Level").Value
         local selectedQuest
@@ -82,6 +87,15 @@ return function(Rayfield, Window)
         end
     end
 
+    local function StartQuestOnce(quest)
+        local questGui = player:WaitForChild("PlayerGui"):WaitForChild("Quest"):WaitForChild("Mission")
+        local activeQuestName = questGui.Visible and questGui:FindFirstChild("CurrentQuest") and questGui.CurrentQuest.Value
+        if not activeQuestName or activeQuestName ~= quest.QuestName then
+            QuestEvent:FireServer({Type = "RemoveQuest"})
+            QuestEvent:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+        end
+    end
+
     local function AttachSuperKill(enemy)
         if currentHealthConnection then
             currentHealthConnection:Disconnect()
@@ -103,21 +117,17 @@ return function(Rayfield, Window)
             if not autoFarmEnabled then return end
 
             local quest
-            if farmSpecificEnabled and #selectedChainedQuests > 0 then
-                quest = selectedChainedQuests[currentChainedIndex]
-            elseif farmSpecificEnabled then
-                quest = selectedChainedQuests[1]
+            if farmSpecificEnabled and manualFarmQuest then
+                quest = manualFarmQuest
             else
                 quest = GetCurrentQuest()
             end
 
             if quest then
+                -- Teleport to the appropriate area
                 TeleportToArea(quest.MinLevel)
-
-                -- Start quest automatically
-                local Event = game:GetService("ReplicatedStorage").Resource.Remotes.Bindable.Compliments
-                Event:FireServer({Type = "RemoveQuest"})
-                Event:FireServer({Quest = quest.QuestName, Type = "RepeatQuest"})
+                -- Ensure quest is active
+                StartQuestOnce(quest)
             end
 
             local enemy = GetEnemyForQuest(quest)
@@ -133,14 +143,6 @@ return function(Rayfield, Window)
                     InAir = false,
                     UpTilt = false
                 })
-
-                -- Move to next chained quest if this enemy dies
-                if chainedQuestsEnabled and #selectedChainedQuests > 1 and enemy.Humanoid.Health <= 0 then
-                    currentChainedIndex = currentChainedIndex + 1
-                    if currentChainedIndex > #selectedChainedQuests then
-                        currentChainedIndex = 1
-                    end
-                end
             end
         end)
     end
@@ -155,10 +157,13 @@ return function(Rayfield, Window)
             currentHealthConnection:Disconnect()
             currentHealthConnection = nil
         end
-        currentChainedIndex = 1
     end
 
-    -- UI
+    -- ===========================
+    -- UI: AutoFarm Section
+    -- ===========================
+    AutoFarmTab:CreateSection("AutoFarm Controls")
+
     AutoFarmTab:CreateToggle({
         Name = "Enable AutoFarm",
         CurrentValue = false,
@@ -181,40 +186,38 @@ return function(Rayfield, Window)
         end
     })
 
+    AutoFarmTab:CreateDivider()
+
+    AutoFarmTab:CreateSection("Farm Specific Quest")
+
     local questOptions = {}
     for _, quest in ipairs(quests) do
         table.insert(questOptions, quest.DisplayName)
     end
 
     AutoFarmTab:CreateDropdown({
-        Name = "Choose Quest(s) to Farm",
+        Name = "Choose Quest to Farm",
         Options = questOptions,
         CurrentOption = {questOptions[1]},
-        MultipleOptions = true,
+        MultipleOptions = false,
         Flag = "FarmQuestDropdown",
         Callback = function(options)
-            selectedChainedQuests = {}
-            for _, questName in ipairs(options) do
-                for _, quest in ipairs(quests) do
-                    if quest.DisplayName == questName then
-                        table.insert(selectedChainedQuests, quest)
-                        break
-                    end
+            local questName = options[1]
+            for _, quest in ipairs(quests) do
+                if quest.DisplayName == questName then
+                    manualFarmQuest = quest
+                    break
                 end
             end
         end
     })
 
     AutoFarmTab:CreateToggle({
-        Name = "Farm Specific Quest(s)",
+        Name = "Farm Specific Quest",
         CurrentValue = false,
         Flag = "FarmSpecificToggle",
         Callback = function(state)
             farmSpecificEnabled = state
-            chainedQuestsEnabled = state -- enable chained logic automatically
         end
     })
-
-    -- Chained Quests Section label
-    AutoFarmTab:CreateLabel("Chained Quests", "arrow-right", Color3.fromRGB(255,255,255))
 end
